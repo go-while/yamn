@@ -111,8 +111,10 @@ type Flags struct {
 	Stdout   bool
 	Dummy    bool
 	NoDummy  bool
-	Version  bool
-	MemInfo  bool
+	// Send identifying headers (User-Agent, Date, ...) instead of removing them
+	KeepHeaders bool
+	Version     bool
+	MemInfo     bool
 }
 
 // GetCfg parses the command line flags and config file if they haven't been previously parsed.
@@ -194,6 +196,8 @@ func ParseFlags() *Flags {
 	flag.BoolVar(&f.Dummy, "d", false, "Inject a dummy message")
 	// Disable dummy messaging
 	flag.BoolVar(&f.NoDummy, "nodummy", false, "Don't send dummies")
+	// Keep identifying headers in client messages
+	flag.BoolVar(&f.KeepHeaders, "keep-headers", false, "Don't remove headers that could identify you")
 	// Print Version
 	flag.BoolVar(&f.Version, "version", false, "Print version string")
 	flag.BoolVar(&f.Version, "V", false, "Print version string")

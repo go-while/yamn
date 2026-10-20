@@ -72,15 +72,29 @@ var exitHeaders = map[string]bool{
 	"Message-Id":   true,
 }
 
-// filterHeaders removes every header from h that isn't allowed to reach the
-// recipient.
-func filterHeaders(h mail.Header) {
+// extraAllowedHeaders returns the headers allowed by mail.allow_headers, as
+// canonical header keys.
+func extraAllowedHeaders() map[string]bool {
 	extra := make(map[string]bool)
 	for _, k := range cfg.Mail.AllowHeaders {
 		extra[textproto.CanonicalMIMEHeaderKey(k)] = true
 	}
+	return extra
+}
+
+// headerAllowed reports whether header key k may reach the recipient: it's
+// on the built-in list, in extra (from extraAllowedHeaders) or a Content-*
+// header.
+func headerAllowed(k string, extra map[string]bool) bool {
+	return exitHeaders[k] || extra[k] || strings.HasPrefix(k, "Content-")
+}
+
+// filterHeaders removes every header from h that isn't allowed to reach the
+// recipient.
+func filterHeaders(h mail.Header) {
+	extra := extraAllowedHeaders()
 	for k := range h {
-		if exitHeaders[k] || extra[k] || strings.HasPrefix(k, "Content-") {
+		if headerAllowed(k, extra) {
 			continue
 		}
 		log.Tracef("Dropping header: %s", k)

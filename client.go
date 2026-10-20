@@ -4,10 +4,11 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math"
 	"net/mail"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,17 +18,28 @@ import (
 	//"github.com/codahale/blake2"
 )
 
-// readMessage tries to read a file containing the plaintext to be sent
-func readMessage(filename string) []byte {
-	var err error
+// clientOutput receives notices for the user of the client.  Tests replace
+// it.
+var clientOutput io.Writer = os.Stderr
+
+// readMessageFile reads the plaintext message to be sent from a file.
+func readMessageFile(filename string) []byte {
 	f, err := os.Open(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: Unable to open file\n", filename)
 		os.Exit(1)
 	}
-	msg, err := mail.ReadMessage(f)
+	defer f.Close()
+	return readMessage(f, filename)
+}
+
+// readMessage reads the plaintext message to be sent from r (named name in
+// error messages), applies --to and --subject, and removes headers that
+// could identify the sender unless --keep-headers is given.
+func readMessage(r io.Reader, name string) []byte {
+	msg, err := mail.ReadMessage(r)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: Malformed mail message\n", filename)
+		fmt.Fprintf(os.Stderr, "%s: Malformed mail message\n", name)
 		os.Exit(1)
 	}
 	if flag.To != "" {
@@ -44,7 +56,47 @@ func readMessage(filename string) []byte {
 	if flag.Subject != "" {
 		msg.Header["Subject"] = []string{flag.Subject}
 	}
+	if !flag.KeepHeaders {
+		if removed := stripClientHeaders(msg.Header); len(removed) > 0 {
+			fmt.Fprintf(
+				clientOutput,
+				"Removed from the message, as it could identify you: %s. "+
+					"Use --keep-headers to send them.\n",
+				strings.Join(removed, ", "),
+			)
+		}
+	}
 	return assemble(*msg)
+}
+
+// stripClientHeaders removes headers that could identify the sender before a
+// message is encoded, and returns what it removed.  It keeps the headers an
+// exit passes on (see headerAllowed) plus Bcc, which the exit needs to find
+// the hidden recipients.  Date and Message-Id are removed: the exit sets its
+// own, and they can show the sender's time zone and host name.  From is kept
+// as a bare address, without the display name.
+func stripClientHeaders(h mail.Header) (removed []string) {
+	extra := extraAllowedHeaders()
+	for k := range h {
+		keep := k == "Bcc" || (headerAllowed(k, extra) && k != "Date" && k != "Message-Id")
+		if !keep {
+			delete(h, k)
+			removed = append(removed, k)
+		}
+	}
+	if from := h.Get("From"); from != "" {
+		addr, err := mail.ParseAddress(from)
+		switch {
+		case err != nil:
+			delete(h, "From")
+			removed = append(removed, "From (unreadable)")
+		case addr.Name != "":
+			h["From"] = []string{addr.Address}
+			removed = append(removed, "From display name")
+		}
+	}
+	slices.Sort(removed)
+	return
 }
 
 // mixprep fetches the plaintext and prepares it for mix encoding
@@ -60,18 +112,14 @@ func mixprep() {
 	final := newSlotFinal()
 	if len(flag.Args) == 0 {
 		//fmt.Println("Enter message, complete with headers.  Ctrl-D to finish")
-		plain, err = ioutil.ReadAll(os.Stdin)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
+		plain = readMessage(os.Stdin, "stdin")
 	} else if len(flag.Args) == 1 {
 		// A single arg should be the filename
-		plain = readMessage(flag.Args[0])
+		plain = readMessageFile(flag.Args[0])
 	} else if len(flag.Args) >= 2 {
 		// Two args should be recipient and filename
 		flag.To = flag.Args[0]
-		plain = readMessage(flag.Args[1])
+		plain = readMessageFile(flag.Args[1])
 	}
 	// plainLen is the length of the plain byte message and can exceed
 	// the total body size of the payload.
