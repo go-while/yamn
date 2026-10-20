@@ -207,7 +207,7 @@ func ParseFlags() *Flags {
 	// Print debug info
 	flag.BoolVar(&f.Debug, "debug", false, "Print detailed config")
 	// Memory usage
-	flag.BoolVar(&f.MemInfo, "meminfo", false, "Print memory info")
+	flag.BoolVar(&f.MemInfo, "meminfo", false, "Log memory use with the hourly stats (loglevel info)")
 	// Refresh remailer stats files
 	flag.BoolVar(&f.Refresh, "refresh", false, "Refresh remailer stats files")
 

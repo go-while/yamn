@@ -79,6 +79,9 @@ func loopServer() (err error) {
 	}
 
 	log.Infof("Secret keyring contains %d keys", secret.Count())
+	if flag.MemInfo {
+		logMemInfo()
+	}
 
 	// Define triggers for timed events
 	daily := time.Now()
@@ -167,6 +170,9 @@ func loopServer() (err error) {
 			}
 			// Report throughput
 			stats.report()
+			if flag.MemInfo {
+				logMemInfo()
+			}
 			hourly = time.Now()
 		}
 

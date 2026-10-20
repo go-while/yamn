@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"sync"
 	"testing"
 )
@@ -46,5 +47,18 @@ func TestReportAndReset(t *testing.T) {
 		if v := c.Load(); v != 0 {
 			t.Errorf("counter %d is %d after reset, want 0", i, v)
 		}
+	}
+}
+
+func TestLogMemInfo(t *testing.T) {
+	logged := captureLog(t)
+	logMemInfo()
+	for _, field := range []string{"HeapInUse=", "HeapObjects=", "Sys=", "TotalAlloc=", "NumGC=", "Goroutines="} {
+		if !strings.Contains(logged.String(), field) {
+			t.Errorf("Memory report should contain %s, got %q", field, logged)
+		}
+	}
+	if !strings.Contains(logged.String(), "MiB") {
+		t.Errorf("Sizes should be in MiB, got %q", logged)
 	}
 }
