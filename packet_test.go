@@ -2,17 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"testing"
 
 	"github.com/crooks/yamn/crandom"
 )
-
-func errTest(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
 
 func TestEpochTimestamp(t *testing.T) {
 	data := newSlotData()
@@ -54,11 +49,38 @@ func TestSlotData(t *testing.T) {
 
 func TestNaClEncryptDecrypt(t *testing.T) {
 	inHead := newEncodeHeader()
-	inPlain := crandom.Randbytes(160)
-	recipientPK, _ := eccGenerate()
+	inPlain := crandom.Randbytes(encHeadBytes)
+	recipientPK, recipientSK := eccGenerate()
 	fakeKeyid := crandom.Randbytes(16)
 	inHead.setRecipient(fakeKeyid, recipientPK)
-	inHead.encode(inPlain)
+	encoded := inHead.encode(inPlain)
+	if len(encoded) != headerBytes {
+		t.Fatalf("Encoded header length: expected %d, got %d", headerBytes, len(encoded))
+	}
+
+	outHead := newDecodeHeader(encoded)
+	if outHead.getRecipientKeyID() != hex.EncodeToString(fakeKeyid) {
+		t.Fatalf("Recipient KeyID mismatch: %s", outHead.getRecipientKeyID())
+	}
+	outHead.setRecipientSK(recipientSK)
+	outPlain, version, err := outHead.decode()
+	if err != nil {
+		t.Fatalf("Header decode failed: %s", err)
+	}
+	if !bytes.Equal(inPlain, outPlain) {
+		t.Fatal("Encrypted/Decrypted header data mismatch")
+	}
+	if version != int(inPlain[0]) {
+		t.Fatalf("Version: expected %d, got %d", inPlain[0], version)
+	}
+
+	// Decoding with the wrong secret key must fail authentication
+	_, wrongSK := eccGenerate()
+	wrongHead := newDecodeHeader(encoded)
+	wrongHead.setRecipientSK(wrongSK)
+	if _, _, err := wrongHead.decode(); err == nil {
+		t.Fatal("Header decode with wrong secret key should fail")
+	}
 }
 
 func TestPacket(t *testing.T) {
@@ -136,7 +158,7 @@ func TestOneHop(t *testing.T) {
 	decHeader.setRecipientSK(exitSK)
 	decSlotDataBytes, version, err := decHeader.decode()
 	if err != nil {
-		t.Fatalf("Header docode failed: %s", err)
+		t.Fatalf("Header decode failed: %s", err)
 	}
 	if version != 2 {
 		t.Fatalf(
@@ -284,7 +306,7 @@ func TestMultiHop(t *testing.T) {
 				)
 			}
 		} else {
-			t.Fatalf("Unknown Packet Type: %d", decData.packetInfo)
+			t.Fatalf("Unknown Packet Type: %d", decData.packetType)
 		}
 
 		if gotExit {

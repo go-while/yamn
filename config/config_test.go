@@ -1,29 +1,35 @@
 package config
 
 import (
-	"io/ioutil"
+	"flag"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestFlags(t *testing.T) {
 	expectedClient := false
-	expectedCopies := 0
+	expectedCopies := 2 // Default value from flag parsing
+	// ParseFlags registers on the global FlagSet and parses os.Args.  Give
+	// it a fresh FlagSet and no arguments so the test can run repeatedly.
+	oldCommandLine, oldArgs := flag.CommandLine, os.Args
+	defer func() { flag.CommandLine, os.Args = oldCommandLine, oldArgs }()
+	flag.CommandLine = flag.NewFlagSet("yamn", flag.ContinueOnError)
+	os.Args = []string{"yamn"}
 	f := ParseFlags()
 	if f.Client != expectedClient {
 		t.Errorf("Expected Client to contain \"%v\" but got \"%v\".", expectedClient, f.Client)
 	}
 	if f.Copies != expectedCopies {
-		t.Errorf("Expected Client to contain \"%v\" but got \"%v\".", expectedCopies, f.Copies)
+		t.Errorf("Expected Copies to contain \"%v\" but got \"%v\".", expectedCopies, f.Copies)
 	}
 }
 
 func TestConfig(t *testing.T) {
-	testFile, err := ioutil.TempFile("/tmp", "yamn")
+	testFile, err := os.CreateTemp(t.TempDir(), "yamn")
 	if err != nil {
 		t.Fatalf("Unable to create TempFile: %v", err)
 	}
-	defer os.Remove(testFile.Name())
 	fakeCfg := `---
 general:
   logtofile: true
@@ -31,8 +37,12 @@ general:
 files:
   pubkey: /fake/dir/pubkey
 `
-	testFile.WriteString(fakeCfg)
-	testFile.Close()
+	if _, err := testFile.WriteString(fakeCfg); err != nil {
+		t.Fatalf("Unable to write TempFile: %v", err)
+	}
+	if err := testFile.Close(); err != nil {
+		t.Fatalf("Unable to close TempFile: %v", err)
+	}
 	f := new(Flags)
 	// Populate the Config flag with the new testFile name.  This will override any other yamn config files that might
 	// be lurking.
@@ -49,7 +59,7 @@ files:
 	}
 	// These settings are defined in the fake config
 	if !c.General.LogToFile {
-		t.Errorf("expected c.General.Loglevel to be true but got %v", c.General.LogToFile)
+		t.Errorf("expected c.General.LogToFile to be true but got %v", c.General.LogToFile)
 	}
 	if c.General.Loglevel != "info" {
 		t.Errorf("expected c.General.Loglevel to contain \"info\" but got \"%s\"", c.General.Loglevel)
@@ -67,5 +77,27 @@ files:
 	// These settings inherit defaults from flags
 	if c.Files.IDlog != "/fakedir/idlog" {
 		t.Errorf("Expected c.Files.IDlog to default to \"/fakedir/idlog\" but got \"%s\".", c.Files.IDlog)
+	}
+}
+
+// TestEmptyConfig checks that a config file holding an empty YAML document
+// keeps the defaults instead of returning a nil Config.
+func TestEmptyConfig(t *testing.T) {
+	for _, content := range []string{"", "---\n", "# comment only\n"} {
+		cfgFile := filepath.Join(t.TempDir(), "yamn.yml")
+		if err := os.WriteFile(cfgFile, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		f := &Flags{Config: cfgFile, Dir: "/fakedir"}
+		c, err := f.ParseConfig()
+		if err != nil {
+			t.Fatalf("ParseConfig(%q) returned: %v", content, err)
+		}
+		if c == nil {
+			t.Fatalf("ParseConfig(%q) returned a nil Config", content)
+		}
+		if c.General.Loglevel != "warn" {
+			t.Errorf("ParseConfig(%q): expected default loglevel \"warn\", got %q", content, c.General.Loglevel)
+		}
 	}
 }

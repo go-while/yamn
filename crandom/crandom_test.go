@@ -1,6 +1,7 @@
 package crandom
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -31,17 +32,6 @@ func sum(s []int) (t int) {
 	return
 }
 
-// sumAsc totals all the bytes in a subset(r) of a slice of strings.
-func sumAsc(asc []string, r int) (t int) {
-	for _, s := range asc[0:r] {
-		chars := []byte(s)
-		for _, c := range chars {
-			t += int(c)
-		}
-	}
-	return
-}
-
 func TestDice(t *testing.T) {
 	i := Dice()
 	if i < 0 || i > 255 {
@@ -50,10 +40,10 @@ func TestDice(t *testing.T) {
 }
 
 func TestInt(t *testing.T) {
-	for i := 0; i < 100; i++ {
-		i := RandomInt(3)
-		if i < 0 || i > 2 {
-			t.Fatalf("Random integer out of range: %d", i)
+	for range 100 {
+		n := RandomInt(3)
+		if n < 0 || n > 2 {
+			t.Fatalf("Random integer out of range: %d", n)
 		}
 	}
 }
@@ -76,9 +66,11 @@ func TestRandInts(t *testing.T) {
 		if is[i] == i {
 			inSeq++
 		}
-		if inSeq > testLen/10 {
-			t.Errorf("Suspiciously high number of sequence n in slice n. Collisions=%d", inSeq)
-		}
+	}
+	// A random permutation leaves about one element in place on average.
+	// More than 10 of 50 has a probability of roughly 1 in 100 million.
+	if inSeq > testLen/5 {
+		t.Errorf("Suspiciously high number of sequence n in slice n. Collisions=%d", inSeq)
 	}
 }
 
@@ -89,35 +81,37 @@ func TestShuffle(t *testing.T) {
 	for n := 0; n <= end-start; n++ {
 		shuffleText[n] = string(rune(n + start))
 	}
-	// Compare the total byte values of all the chars before and after a shuffle.  They should match.
-	preSum := sumAsc(shuffleText, len(shuffleText))
+	original := slices.Clone(shuffleText)
 	Shuffle(shuffleText)
-	postSum := sumAsc(shuffleText, len(shuffleText))
-	if preSum != postSum {
-		t.Fatalf("Mismatched sum of acsii chars before and after shuffle. Before=%d, After=%d", preSum, postSum)
+	// The shuffled slice must contain exactly the original elements.
+	sorted := slices.Clone(shuffleText)
+	slices.Sort(sorted)
+	if !slices.Equal(sorted, original) {
+		t.Fatal("Shuffle changed the elements of the slice")
 	}
-	// Compare the total byte values of all the chars in a subsection of the slice.  They should not match.
-	preSum = sumAsc(shuffleText, 10)
-	Shuffle(shuffleText)
-	postSum = sumAsc(shuffleText, 10)
-	if preSum == postSum {
-		t.Fatal("Bad shuffle. Substring match in shuffled text.")
+	// With 75 elements, the chance of a shuffle keeping the original order
+	// is 1 in 75! (effectively zero).
+	if slices.Equal(shuffleText, original) {
+		t.Fatal("Bad shuffle. Slice order unchanged.")
 	}
 }
 
 func TestRandBytes(t *testing.T) {
-	sampleLength := 100
+	sampleLength := 4096
 	rb := Randbytes(sampleLength)
 	if len(rb) != sampleLength {
 		t.Fatalf("Mismatched byte count.  Expected=%d, Got=%d", sampleLength, len(rb))
 	}
-	// Count the occurances of each byte in random data.  Fail if too many collisions occur.
-	threshold := (sampleLength / 100) * 5 // 5% of whole sample
+	// Each byte value is expected about 16 times.  Fail if any value occurs
+	// 64 times or more, which random data will practically never do.
+	threshold := 64
 	m := make(map[byte]int)
 	for _, b := range rb {
 		m[b]++
-		if m[b] > threshold {
-			t.Errorf("Suspiciously high number of matching bytes in random data. Byte=%d, Count=%d", b, m[b])
+	}
+	for b, count := range m {
+		if count >= threshold {
+			t.Errorf("Suspiciously high number of matching bytes in random data. Byte=%d, Count=%d", b, count)
 		}
 	}
 }

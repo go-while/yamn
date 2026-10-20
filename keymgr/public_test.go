@@ -3,17 +3,30 @@ package keymgr
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestWritePubring(t *testing.T) {
-	f, err := os.Create("pubring.mix")
-	if err != nil {
+// writeTestFiles writes a fake pubring.mix and mlist2.txt into a temporary
+// directory and returns their paths.
+func writeTestFiles(t *testing.T) (pubring, mlist2 string) {
+	t.Helper()
+	dir := t.TempDir()
+	pubring = filepath.Join(dir, "pubring.mix")
+	mlist2 = filepath.Join(dir, "mlist2.txt")
+	if err := os.WriteFile(pubring, []byte(fakePubring()), 0644); err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	if err := os.WriteFile(mlist2, []byte(fakeMlist2()), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+func fakePubring() string {
+	f := new(strings.Builder)
 	var options string
 	for n := 0; n < 10; n++ {
 		counter := fmt.Sprintf("%02d", n)
@@ -37,17 +50,14 @@ func TestWritePubring(t *testing.T) {
 		f.WriteString(key + "\n")
 		f.WriteString("-----End Mix Key-----\n\n")
 	}
+	return f.String()
 }
 
-func TestWriteMlist2(t *testing.T) {
-	f, err := os.Create("mlist2.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
+func fakeMlist2() string {
+	f := new(strings.Builder)
 	f.WriteString("Stats-Version: 2.0\n")
-	now := time.Now()
-	gentime := now.Add(-90 * time.Minute)
+	// The Generated timestamp is always in GMT
+	gentime := time.Now().UTC().Add(-90 * time.Minute)
 	genstamp := fmt.Sprintf("Generated: %s\n", gentime.Format(generatedFormat))
 	f.WriteString(genstamp)
 	f.WriteString("Mixmaster    Latent-Hist   Latent  Uptime-Hist   Uptime  Options\n")
@@ -94,18 +104,18 @@ func TestWriteMlist2(t *testing.T) {
 		)
 		f.WriteString(header)
 	}
-
+	return f.String()
 }
 
 func TestImport(t *testing.T) {
-	p := NewPubring("pubring.mix", "mlist2.txt")
+	p := NewPubring(writeTestFiles(t))
 	err := p.ImportPubring()
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Printf("Imported %d remailers from Public Keyring.\n", p.Count())
+	t.Logf("Imported %d remailers from Public Keyring.", p.Count())
 	for _, rem := range p.KeyList() {
-		fmt.Println(rem)
+		t.Log(rem)
 	}
 	// Stats haven't been imported yet
 	if p.HaveStats() {
@@ -136,7 +146,7 @@ func TestImport(t *testing.T) {
 }
 
 func TestCandidates(t *testing.T) {
-	p := NewPubring("pubring.mix", "mlist2.txt")
+	p := NewPubring(writeTestFiles(t))
 	err := p.ImportPubring()
 	if err != nil {
 		t.Fatal(err)
@@ -148,14 +158,14 @@ func TestCandidates(t *testing.T) {
 	// Middleman Remailer candidates
 	candidates := p.Candidates(1, 8, 70.0, false)
 	numCandidates := len(candidates)
-	fmt.Printf("Middle candidates: %d\n", numCandidates)
+	t.Logf("Middle candidates: %d", numCandidates)
 	if numCandidates != 6 {
 		t.Fatalf("Expected 6 Middle candidates, got %d", numCandidates)
 	}
 	// Exit Remailer candidates
 	candidates = p.Candidates(1, 8, 70.0, true)
 	numCandidates = len(candidates)
-	fmt.Printf("Exit candidates: %d\n", numCandidates)
+	t.Logf("Exit candidates: %d", numCandidates)
 	if numCandidates != 3 {
 		t.Fatalf("Expected 3 Exit candidates, got %d", numCandidates)
 	}

@@ -120,19 +120,30 @@ func fileTime(filename string) (t time.Time, err error) {
 	return
 }
 
+const (
+	httpTimeout      = 30 * time.Second
+	maxDownloadBytes = 4 * 1024 * 1024 // pubring/mlist2 are a few KB
+)
+
 // httpGet retrieves url and stores it in filename
 func httpGet(url, filename string) (err error) {
-	res, err := http.Get(url)
+	client := &http.Client{Timeout: httpTimeout}
+	res, err := client.Get(url)
 	if err != nil {
 		return
 	}
+	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode > 299 {
 		err = fmt.Errorf("%s: %s", url, res.Status)
 		return err
 	}
-	content, err := ioutil.ReadAll(res.Body)
+	// Read one byte past the limit so an oversized file can be detected
+	content, err := io.ReadAll(io.LimitReader(res.Body, maxDownloadBytes+1))
 	if err != nil {
 		return
+	}
+	if len(content) > maxDownloadBytes {
+		return fmt.Errorf("%s: exceeds %d byte download limit", url, maxDownloadBytes)
 	}
 	err = ioutil.WriteFile(filename, content, 0644)
 	if err != nil {
