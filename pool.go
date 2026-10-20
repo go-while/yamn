@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/mail"
 	"os"
 	"path"
@@ -296,10 +297,15 @@ func newPoolFile(prefix string) (f *os.File, err error) {
 
 // writeMessageToPool requires a recipient address (another remailer) and a
 // payload (that gets Base64 armored).
-func writeMessageToPool(sendTo string, payload []byte) {
+func writeMessageToPool(sendTo string, payload []byte) error {
+	// sendTo becomes the To header.  A line break in it would let extra
+	// headers be injected into the outgoing mail.
+	if strings.ContainsAny(sendTo, "\r\n") {
+		return fmt.Errorf("refusing to pool message: recipient contains a line break: %q", sendTo)
+	}
 	f, err := newPoolFile("m")
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("unable to create pool file: %w", err)
 	}
 	defer f.Close()
 	// Add mail headers to the pool file
@@ -307,6 +313,7 @@ func writeMessageToPool(sendTo string, payload []byte) {
 	writeMailHeaders(f, sendTo)
 	// Armor the payload
 	armor(f, payload)
+	return nil
 }
 
 // writePlainToPool writes a plaintext file to the pool and returns the filename

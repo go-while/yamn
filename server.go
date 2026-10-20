@@ -329,6 +329,27 @@ func createDirs() {
 	}
 }
 
+// checkNextHop verifies the next-hop address from an intermediate header.  It
+// is set by the sender, so it must be a remailer in our public keyring and
+// must not contain characters that could inject mail headers.
+func checkNextHop(addr string) error {
+	if addr == "" {
+		return errors.New("next hop is empty")
+	}
+	for _, r := range addr {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("next hop contains control characters: %q", addr)
+		}
+	}
+	if !strings.Contains(addr, "@") {
+		return fmt.Errorf("next hop is not an email address: %q", addr)
+	}
+	if _, err := Pubring.Get(addr); err != nil {
+		return fmt.Errorf("next hop is not a known remailer: %s", addr)
+	}
+	return nil
+}
+
 // decodeSafely runs decodeMsg and turns a panic into an error.  Received
 // messages come from untrusted senders, so a bug triggered by one message
 // must drop that message instead of stopping the remailer.
@@ -429,7 +450,13 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 			}
 			stats.outLoop++
 		} else {
-			writeMessageToPool(inter.getNextHop(), d.getPayload())
+			if err = checkNextHop(inter.getNextHop()); err != nil {
+				err = fmt.Errorf("refusing to forward: %w", err)
+				return
+			}
+			if err = writeMessageToPool(inter.getNextHop(), d.getPayload()); err != nil {
+				return
+			}
 			stats.outYamn++
 			// Decide if we want to inject a dummy
 			if !flag.NoDummy && crandom.Dice() < 55 {
@@ -590,7 +617,10 @@ func randhop(plainMsg []byte) {
 	}
 	log.Tracef("Performing a random hop to Exit Remailer: %s.", chain[0])
 	yamnMsg := encodeMsg(plainMsg, chain, *final)
-	writeMessageToPool(sendTo, yamnMsg)
+	if err = writeMessageToPool(sendTo, yamnMsg); err != nil {
+		log.Warn(err)
+		return
+	}
 	stats.outRandhop++
 }
 
