@@ -17,7 +17,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-08](#y-08-no-abuse-controls-at-the-exit) | Medium | No abuse controls at the exit | open |
 | [Y-09](#y-09-replay-window) | Medium | Replay window | open |
 | [Y-10](#y-10-malformed-files-crash-yamn) | Medium | Malformed stats / secring files crash yamn | fixed (40678e5) |
-| [Y-11](#y-11-failed-download-overwrites-a-good-keyring) | Medium | Failed download overwrites a good keyring | open |
+| [Y-11](#y-11-failed-download-overwrites-a-good-keyring) | Medium | Failed download overwrites a good keyring | fixed (3e7f17c) |
 | [Y-12](#y-12-non-yamn-mail-is-never-deleted) | Medium | Non-yamn mail is never deleted | open |
 | [Y-13](#y-13-config-file-is-read-from-the-working-directory) | Medium | Config file is read from the working directory | open |
 | [Y-14](#y-14-biased-shuffle) | Low | Biased shuffle | open |
@@ -237,6 +237,10 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   usable remailers.
 - **Fix:** Download to a temporary file, check that it parses, then rename it
   over the old file.
+- **Status:** fixed in `3e7f17c` (branch `fix/11-safe-download`). Downloads are
+  checked with `keymgr.CheckPubring` / `keymgr.CheckStats` before anything is
+  written, then written to a temp file and renamed into place. Tests:
+  `keymgr/check_test.go`, `TestHTTPGetValidation`.
 
 ### Y-12: Non-yamn mail is never deleted
 
