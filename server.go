@@ -250,6 +250,13 @@ func chunkClean() {
 
 // nagOperator prompts a remailer operator about poor practices.
 func nagOperator() {
+	if cfg.Mail.MessageDomain != "" && !validMessageDomain(cfg.Mail.MessageDomain) {
+		log.Warnf(
+			"mail.message_domain %q isn't a valid domain and is ignored. "+
+				"Message-IDs use the domain of remailer.address.",
+			cfg.Mail.MessageDomain,
+		)
+	}
 	// Complain about excessively small loop values.
 	if cfg.Pool.Loop < 60 {
 		log.Warnf(
