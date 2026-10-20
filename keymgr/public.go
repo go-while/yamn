@@ -420,6 +420,17 @@ func (p *Pubring) ImportPubring() (err error) {
 				key_phase = 0
 				continue
 			}
+			// The keyid is defined as the hash of the public key.  A
+			// mismatch means the key block was altered or corrupted.
+			if !bytes.Equal(makeKeyID(pkdata), rem.Keyid) {
+				fmt.Fprintf(
+					os.Stderr,
+					"%s: Keyid does not match public key. Ignoring key.\n",
+					rem.name,
+				)
+				key_phase = 0
+				continue
+			}
 			rem.PK = pkdata
 			key_phase = 4
 		case 4:
