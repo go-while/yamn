@@ -16,7 +16,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-07](#y-07-exit-header-handling) | Medium | Exit header handling (Bcc leak, no filtering, From spoofing) | open |
 | [Y-08](#y-08-no-abuse-controls-at-the-exit) | Medium | No abuse controls at the exit | open |
 | [Y-09](#y-09-replay-window) | Medium | Replay window | open |
-| [Y-10](#y-10-malformed-files-crash-yamn) | Medium | Malformed stats / secring files crash yamn | open |
+| [Y-10](#y-10-malformed-files-crash-yamn) | Medium | Malformed stats / secring files crash yamn | fixed (40678e5) |
 | [Y-11](#y-11-failed-download-overwrites-a-good-keyring) | Medium | Failed download overwrites a good keyring | open |
 | [Y-12](#y-12-non-yamn-mail-is-never-deleted) | Medium | Non-yamn mail is never deleted | open |
 | [Y-13](#y-13-config-file-is-read-from-the-working-directory) | Medium | Config file is read from the working directory | open |
@@ -219,6 +219,9 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   `line[:9]`.
 - **Fix:** Check lengths before indexing (`strings.Cut`,
   `strings.HasPrefix`).
+- **Status:** fixed in `40678e5` (branch `fix/10-malformed-files`). Bad stats
+  lines are skipped ("Invalid latency"); secring date lines use
+  `strings.CutPrefix`. Tests: `keymgr/malformed_test.go`.
 
 ### Y-11: Failed download overwrites a good keyring
 
