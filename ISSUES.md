@@ -7,7 +7,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 
 | ID | Severity | Summary | Status |
 |---|---|---|---|
-| [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | open |
+| [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | fixed (4f370cc) |
 | [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | open |
 | [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | open |
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | open |
@@ -54,6 +54,11 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   `smtpMethod`, reject when the stored chunk list length differs from
   `numChunks`. Consider a `recover` around per-message processing so a single
   bad message can never stop the daemon.
+- **Status:** fixed in `4f370cc` (branch `fix/01-remote-crash`).
+  `slotFinal.validate()` rejects bad exit headers before the body is
+  decrypted; `smtpMethod` rejects chunks that disagree with the stored record;
+  `decodeSafely` recovers from any remaining panic and drops the message.
+  Tests: `validate_test.go`.
 
 ### Y-02: SMTP TLS without certificate verification
 
