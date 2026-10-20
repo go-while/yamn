@@ -98,19 +98,15 @@ func main() {
 	if flag.Client {
 		mixprep()
 	} else if flag.Stdin {
-		dir := maildir.Dir(cfg.Files.Maildir)
-		newmsg, err := dir.NewDelivery()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
 		stdin, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		newmsg.Write(stdin)
-		newmsg.Close()
+		if _, err := deliverToMaildir(maildir.Dir(cfg.Files.Maildir), stdin); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	} else if flag.Remailer {
 		err = loopServer()
 		if err != nil {

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -358,22 +359,44 @@ func newPoolFile(prefix string) (f *os.File, err error) {
 // writeMessageToPool requires a recipient address (another remailer) and a
 // payload (that gets Base64 armored).
 func writeMessageToPool(sendTo string, payload []byte) error {
-	// sendTo becomes the To header.  A line break in it would let extra
-	// headers be injected into the outgoing mail.
-	if strings.ContainsAny(sendTo, "\r\n") {
-		return fmt.Errorf("refusing to pool message: recipient contains a line break: %q", sendTo)
+	// Build the mail first, so nothing is pooled if it's refused.
+	mail := new(bytes.Buffer)
+	if err := writeYamnMail(mail, sendTo, payload); err != nil {
+		return err
 	}
 	f, err := newPoolFile("m")
 	if err != nil {
 		return fmt.Errorf("unable to create pool file: %w", err)
 	}
 	defer f.Close()
-	// Add mail headers to the pool file
 	writeInternalHeader(f)
-	writeMailHeaders(f, sendTo)
-	// Armor the payload
-	armor(f, payload)
-	return nil
+	_, err = f.Write(mail.Bytes())
+	return err
+}
+
+// deliverToMaildir stores incoming mail (-R, --read-mail) in the remailer's
+// Maildir.  data is a single mail, or an mbox of several (as written by
+// --stdout), which is split into one Maildir message per mail.
+func deliverToMaildir(dir maildir.Dir, data []byte) (delivered int, err error) {
+	mails := [][]byte{data}
+	if isMbox(data) {
+		mails = splitMbox(data)
+	}
+	for _, mail := range mails {
+		d, err := dir.NewDelivery()
+		if err != nil {
+			return delivered, err
+		}
+		if _, err := d.Write(mail); err != nil {
+			d.Abort()
+			return delivered, err
+		}
+		if err := d.Close(); err != nil {
+			return delivered, err
+		}
+		delivered++
+	}
+	return delivered, nil
 }
 
 // writePlainToPool writes a plaintext file to the pool and returns the filename

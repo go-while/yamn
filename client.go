@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"math"
@@ -217,17 +218,34 @@ func mixprep() {
 				chain,
 				*final,
 			)
-			if err = writeMessageToPool(sendTo, yamnMsg); err != nil {
+			if err = outputMessage(sendTo, yamnMsg); err != nil {
 				log.Error(err)
 				os.Exit(1)
 			}
 		} // End of copies loop
 	} // End of fragments loop
 
-	// Decide if we want to inject a dummy
-	if !flag.NoDummy && Pubring.HaveStats() && crandom.Dice() < 80 {
+	// Decide if we want to inject a dummy.  Not with --stdout: dummies are
+	// sent from the pool, and nothing else from this message is.
+	if !flag.NoDummy && !flag.Stdout && Pubring.HaveStats() && crandom.Dice() < 80 {
 		dummy()
 	}
+}
+
+// mailOutput receives the encrypted mails with --stdout.  Tests replace it.
+var mailOutput io.Writer = os.Stdout
+
+// outputMessage hands an encrypted mail for its first hop to the pool, or
+// with --stdout prints it as an mbox entry instead.
+func outputMessage(sendTo string, yamnMsg []byte) error {
+	if !flag.Stdout {
+		return writeMessageToPool(sendTo, yamnMsg)
+	}
+	mail := new(bytes.Buffer)
+	if err := writeYamnMail(mail, sendTo, yamnMsg); err != nil {
+		return err
+	}
+	return writeMbox(mailOutput, mail.Bytes())
 }
 
 // numCopies returns how many copies of each chunk to send: the --copies flag
