@@ -1,6 +1,8 @@
 package keymgr
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,9 +31,11 @@ func fakePubring() string {
 	f := new(strings.Builder)
 	var options string
 	for n := 0; n < 10; n++ {
-		counter := fmt.Sprintf("%02d", n)
-		keyid := strings.Repeat("0", 32-len(counter)) + counter
-		key := strings.Repeat("0", 32) + keyid
+		// A deterministic 32 byte public key, with its keyid derived from it
+		// as on a real pubring.
+		pk := bytes.Repeat([]byte{byte(n + 1)}, 32)
+		key := hex.EncodeToString(pk)
+		keyid := hex.EncodeToString(makeKeyID(pk))
 		if n < 4 {
 			options = "E"
 		} else {
@@ -168,5 +172,39 @@ func TestCandidates(t *testing.T) {
 	t.Logf("Exit candidates: %d", numCandidates)
 	if numCandidates != 3 {
 		t.Fatalf("Expected 3 Exit candidates, got %d", numCandidates)
+	}
+}
+
+// TestImportRejectsMismatchedKeyid checks that a key block whose public key
+// doesn't hash to its keyid is ignored, e.g. if the key was swapped.
+func TestImportRejectsMismatchedKeyid(t *testing.T) {
+	good := bytes.Repeat([]byte{0x11}, 32)
+	swapped := bytes.Repeat([]byte{0x22}, 32)
+	block := func(name string, keyid, pk []byte) string {
+		k := hex.EncodeToString(keyid)
+		return fmt.Sprintf(
+			"%s %s@domain.foo %s 4:0.2a E 2016-01-01 2100-12-31\n\n"+
+				"-----Begin Mix Key-----\n%s\n%s\n-----End Mix Key-----\n\n",
+			name, name, k, k, hex.EncodeToString(pk),
+		)
+	}
+	pubring := filepath.Join(t.TempDir(), "pubring.mix")
+	content := block("good", makeKeyID(good), good) +
+		block("swapped", makeKeyID(good), swapped)
+	if err := os.WriteFile(pubring, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	p := NewPubring(pubring, filepath.Join(t.TempDir(), "mlist2.txt"))
+	if err := p.ImportPubring(); err != nil {
+		t.Fatal(err)
+	}
+	if p.Count() != 1 {
+		t.Fatalf("Expected 1 imported key, got %d", p.Count())
+	}
+	if _, err := p.Get("good@domain.foo"); err != nil {
+		t.Errorf("Valid key should be imported: %s", err)
+	}
+	if _, err := p.Get("swapped@domain.foo"); err == nil {
+		t.Error("Key with a mismatched keyid should be ignored")
 	}
 }
