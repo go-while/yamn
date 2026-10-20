@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"sync/atomic"
 
 	"github.com/Masterminds/log-go"
@@ -70,3 +71,22 @@ func (s *statistics) reportAndReset() []int64 {
 }
 
 var stats = new(statistics)
+
+// logMemInfo logs the process's memory use from the Go runtime (--meminfo).
+// It helps to spot a long-running remailer growing over time.  HeapInUse is
+// memory in use by Go objects, Sys what the process got from the OS, and
+// TotalAlloc everything allocated since start (it only grows).
+func logMemInfo() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	mib := func(b uint64) string { return fmt.Sprintf("%.1fMiB", float64(b)/(1<<20)) }
+	log.Infof(
+		"Memory: HeapInUse=%s, HeapObjects=%d, Sys=%s, TotalAlloc=%s, NumGC=%d, Goroutines=%d",
+		mib(m.HeapInuse),
+		m.HeapObjects,
+		mib(m.Sys),
+		mib(m.TotalAlloc),
+		m.NumGC,
+		runtime.NumGoroutine(),
+	)
+}
