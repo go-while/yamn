@@ -10,7 +10,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | fixed (4f370cc) |
 | [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | fixed (6c0fb7e) |
 | [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | open |
-| [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | open |
+| [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | fixed (a4ad3ce) |
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | open |
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
 | [Y-07](#y-07-exit-header-handling) | Medium | Exit header handling (Bcc leak, no filtering, From spoofing) | open |
@@ -110,6 +110,12 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   it finds.
 - **Fix:** Only forward to next hops that exist in the pubring. Reject
   addresses containing control characters.
+- **Status:** fixed in `a4ad3ce` (branch `fix/04-next-hop-validation`).
+  `checkNextHop` requires a known remailer address without control
+  characters before a middle remailer forwards; `writeMessageToPool` refuses
+  recipients containing line breaks. A remailer whose keyring is missing the
+  next hop now drops the packet instead of forwarding it. Tests:
+  `nexthop_test.go`.
 
 ## Medium
 

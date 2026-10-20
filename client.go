@@ -174,7 +174,10 @@ func mixprep() {
 				chain,
 				*final,
 			)
-			writeMessageToPool(sendTo, yamnMsg)
+			if err = writeMessageToPool(sendTo, yamnMsg); err != nil {
+				log.Error(err)
+				os.Exit(1)
+			}
 		} // End of copies loop
 	} // End of fragments loop
 
@@ -351,5 +354,7 @@ func dummy() {
 	}
 	log.Tracef("Sending dummy through: %s.", strings.Join(chain, ","))
 	yamnMsg := encodeMsg(plainMsg, chain, *final)
-	writeMessageToPool(sendTo, yamnMsg)
+	if err = writeMessageToPool(sendTo, yamnMsg); err != nil {
+		log.Warnf("Dummy creation failed: %s", err)
+	}
 }
