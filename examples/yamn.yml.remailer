@@ -1,0 +1,24 @@
+# A minimal remailer configuration. Options not listed here keep their
+# default (see yamn.yml.defaults).
+#
+# Run it with:  yamn --remailer --daemon --dir /path/to/this/directory
+
+remailer:
+    name: myremailer
+    address: myremailer@example.org
+    # true for an exit remailer, false for a middle remailer
+    exit: false
+    daemon: true
+
+mail:
+    # Deliver everything through the local MTA
+    smtp_relay: localhost
+    smtp_port: "25"
+    mx_relay: false
+    # Shown on mail delivered by an exit
+    outbound_name: Anonymous Remailer
+    outbound_addy: noreply@example.org
+
+general:
+    loglevel: info
+    logtofile: true

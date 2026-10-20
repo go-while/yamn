@@ -1,0 +1,11 @@
+# A minimal client configuration. Options not listed here keep their default
+# (see yamn.yml.defaults).
+
+mail:
+    # Your mail provider's SMTP server (submission port, TLS verified)
+    smtp_relay: smtp.example.org
+    smtp_port: "587"
+    username: user@example.org
+    password: secret
+    # Send everything through the relay, not directly to remailers' MX
+    mx_relay: false

@@ -2,28 +2,26 @@ Yet Another Mix Net - A Mixmaster derivative
 
 YAMN tries to look like Mixmaster in order to maintain compatibility with the
 various GUI's and peripheral applications that serve to make it a complete
-solution.  Under the covers there will be some significant differences:-
+solution.  Under the covers there are some significant differences:-
 
 * Revised crypto functions.  Instead of Mixmaster's Triple-DES, RSAES-PKCS1-v1_5
-and MD5, YAMN will use AES, NaCl Box and Blake2.
+and MD5, YAMN uses AES, NaCl Box and Blake2.
 
 * Deterministic header padding to protect against tagging attacks
 
-* Others TBA
-
-Installation from source:-
-go get github.com/crooks/yamn
-go get code.google.com/p/go.crypto/nacl/box
-go get github.com/syndtr/goleveldb
-go get github.com/luksen/maildir
-cd ~/go/src/github.com/crooks/yamn
+Building from source (needs Go, see go.mod for the version):-
+git clone https://github.com/go-while/yamn
+cd yamn
 go build
 
-Post-install configuration:-
+Configuration:-
 Create a dir for yamn.  (mkdir yamn)
-Copy yamn binary (yamn.exe on Windows) to the above dir
-Copy yamn.cfg.sample to same dir and rename to yamn.cfg
-Modify yamn.cfg to meet your requirements
+Copy the yamn binary (yamn.exe on Windows) to the above dir
+Create yamn.yml in that dir with the options you want to change, starting
+from examples/yamn.yml.client or examples/yamn.yml.remailer.
+examples/yamn.yml.defaults lists every option with its default.
+Run yamn with --dir pointing at that dir, or with --config.
+yamn --debug prints the configuration in effect.
 
 Examples:-
 
@@ -33,11 +31,24 @@ yamn --mail msg.txt
 Use a user-defined chain
 yamn --mail --chain="*,*,yamn" msg.txt
 
-Send multiple copies
-yamn --mail --copies=2 msg.txt
+Send a single copy (the default is 2)
+yamn --mail --copies=1 msg.txt
+
+Keep all headers of the message (by default identifying headers such as
+User-Agent, Date and Message-ID are removed, and reported)
+yamn --mail --keep-headers msg.txt
+
+Encrypt on one machine, send from another
+yamn --mail --stdout msg.txt > out.mbox      (first machine)
+yamn --import --send < out.mbox              (second machine)
 
 Perform remailer functions
 yamn --remailer
 
 Start a remailer daemon
 yamn --remailer --daemon
+
+Hand mail to a remailer from an MTA, or an mbox written by --stdout
+yamn --read-mail < message
+
+See doc/yamn.1 for all options, and ISSUES.md for known issues.
