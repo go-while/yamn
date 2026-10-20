@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"io"
 	"math/big"
 	"net"
 	"net/textproto"
@@ -76,6 +77,8 @@ type fakeSMTP struct {
 	ln        net.Listener
 	tlsConf   *tls.Config // nil: STARTTLS is not offered
 	offerAuth bool
+	stall     string        // "greeting" or "MAIL": stop responding at that point
+	closed    chan struct{} // closed when a stalled client hangs up
 
 	mu        sync.Mutex
 	usedTLS   bool
@@ -83,13 +86,13 @@ type fakeSMTP struct {
 	delivered bool
 }
 
-func newFakeSMTP(t *testing.T, cert *tls.Certificate, offerAuth bool) *fakeSMTP {
+func newFakeSMTP(t *testing.T, cert *tls.Certificate, offerAuth bool, stall string) *fakeSMTP {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &fakeSMTP{ln: ln, offerAuth: offerAuth}
+	s := &fakeSMTP{ln: ln, offerAuth: offerAuth, stall: stall, closed: make(chan struct{})}
 	if cert != nil {
 		s.tlsConf = &tls.Config{Certificates: []tls.Certificate{*cert}}
 	}
@@ -116,6 +119,10 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 	defer conn.Close()
 	tp := textproto.NewConn(conn)
 	inTLS := false
+	if s.stall == "greeting" {
+		s.waitForHangup(conn)
+		return
+	}
 	tp.PrintfLine("220 fake ESMTP")
 	for {
 		line, err := tp.ReadLine()
@@ -156,6 +163,9 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 			s.usedAuth = true
 			s.mu.Unlock()
 			tp.PrintfLine("235 Authenticated")
+		case strings.HasPrefix(cmd, "MAIL") && s.stall == "MAIL":
+			s.waitForHangup(conn)
+			return
 		case strings.HasPrefix(cmd, "MAIL"), strings.HasPrefix(cmd, "RCPT"):
 			tp.PrintfLine("250 OK")
 		case cmd == "DATA":
@@ -174,6 +184,13 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 			tp.PrintfLine("502 Not implemented")
 		}
 	}
+}
+
+// waitForHangup stops responding and waits until the client closes the
+// connection, like a tarpitting server.
+func (s *fakeSMTP) waitForHangup(conn net.Conn) {
+	io.Copy(io.Discard, conn)
+	close(s.closed)
 }
 
 func (s *fakeSMTP) result() (usedTLS, usedAuth, delivered bool) {
@@ -233,7 +250,7 @@ func TestSmtpSendTLS(t *testing.T) {
 			oldRoots := smtpRootCAs
 			smtpRootCAs = trusted
 			t.Cleanup(func() { smtpRootCAs = oldRoots })
-			server := newFakeSMTP(t, tt.cert, true)
+			server := newFakeSMTP(t, tt.cert, true, "")
 
 			err := smtpSend(tt.host, "25", tt.directMX, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"})
 			if (err != nil) != tt.wantErr {
@@ -266,4 +283,67 @@ func TestIsLoopbackHost(t *testing.T) {
 			t.Errorf("isLoopbackHost(%q) = %v, want %v", host, got, want)
 		}
 	}
+}
+
+// TestSmtpSendTimeout checks that a server which stops responding, before
+// its greeting or in the middle of the session, makes smtpSend give up after
+// smtpTimeout and close the connection.
+func TestSmtpSendTimeout(t *testing.T) {
+	for _, stall := range []string{"greeting", "MAIL"} {
+		t.Run("stall at "+stall, func(t *testing.T) {
+			setupTestConfig(t)
+			cfg.Mail.SMTPRelay = "localhost"
+			oldTimeout := smtpTimeout
+			smtpTimeout = 300 * time.Millisecond
+			t.Cleanup(func() { smtpTimeout = oldTimeout })
+			server := newFakeSMTP(t, nil, false, stall)
+
+			start := time.Now()
+			err := smtpSend("localhost", "25", false, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"})
+			elapsed := time.Since(start)
+			if err == nil {
+				t.Fatal("smtpSend should fail when the server stops responding")
+			}
+			if elapsed > 5*time.Second {
+				t.Fatalf("smtpSend took %s, expected about %s", elapsed, smtpTimeout)
+			}
+			select {
+			case <-server.closed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("smtpSend did not close the connection after the timeout")
+			}
+		})
+	}
+}
+
+// TestSendmailUsesSmtpSend checks that sendmail mode goes through smtpSend,
+// so it gets the relay TLS policy (and require_tls) and the timeouts.
+func TestSendmailUsesSmtpSend(t *testing.T) {
+	relayCert, pool := newTestCert(t, "relay.test")
+	oldRoots := smtpRootCAs
+	smtpRootCAs = pool
+	t.Cleanup(func() { smtpRootCAs = oldRoots })
+
+	t.Run("verified relay delivers", func(t *testing.T) {
+		setupTestConfig(t)
+		cfg.Mail.SMTPRelay = "relay.test"
+		server := newFakeSMTP(t, &relayCert, false, "")
+		if err := sendmail([]byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"}); err != nil {
+			t.Fatalf("sendmail failed: %s", err)
+		}
+		if usedTLS, _, delivered := server.result(); !usedTLS || !delivered {
+			t.Fatalf("expected delivery over TLS, got TLS=%v delivered=%v", usedTLS, delivered)
+		}
+	})
+	t.Run("relay without STARTTLS is refused", func(t *testing.T) {
+		setupTestConfig(t)
+		cfg.Mail.SMTPRelay = "relay.test"
+		server := newFakeSMTP(t, nil, false, "")
+		if err := sendmail([]byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"}); err == nil {
+			t.Fatal("sendmail should refuse a relay without STARTTLS")
+		}
+		if _, _, delivered := server.result(); delivered {
+			t.Fatal("message should not be delivered in plaintext")
+		}
+	})
 }

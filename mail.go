@@ -312,8 +312,18 @@ func isLoopbackHost(host string) bool {
 // servers.  It is nil (use the system pool) except in tests.
 var smtpRootCAs *x509.CertPool
 
+// SMTP timeouts.  smtpTimeout bounds the whole SMTP exchange, from the
+// greeting to QUIT, so a slow or tarpitting server cannot stall the outbound
+// pool for longer than that.  They are variables so tests can shorten them.
+var (
+	smtpDialTimeout = 30 * time.Second
+	smtpTimeout     = 5 * time.Minute
+)
+
 // smtpDial opens the TCP connection to an SMTP server.  Tests replace it.
-var smtpDial = net.Dial
+var smtpDial = func(network, address string) (net.Conn, error) {
+	return net.DialTimeout(network, address, smtpDialTimeout)
+}
 
 // smtpTLSConfig returns the TLS settings for an SMTP connection to host.  The
 // configured relay is always verified, as the SMTP password may be sent to
@@ -366,6 +376,14 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 	conn, err := smtpDial("tcp", serverAddr)
 	if err != nil {
 		log.Warnf("Dial Error: Server=%s, Error=%s", serverAddr, err)
+		return
+	}
+	// Closing the connection also covers every early return below.  After a
+	// successful QUIT it's already closed and this is a no-op.
+	defer conn.Close()
+	// The deadline also applies through the TLS layer after STARTTLS, as
+	// that wraps this connection.
+	if err = conn.SetDeadline(time.Now().Add(smtpTimeout)); err != nil {
 		return
 	}
 
@@ -460,22 +478,21 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 
 	}
 
-	client.Quit()
+	// The message has been accepted at this point.  A failed QUIT must not
+	// be reported as a failed delivery, or the message would be sent again.
+	if qerr := client.Quit(); qerr != nil {
+		log.Tracef("SMTP QUIT failed after delivery: Server=%s, Error=%s", serverAddr, qerr)
+	}
 	return
 }
 
-// sendmail invokes go's sendmail method
+// sendmail delivers through the configured relay only (no direct MX
+// delivery).  It shares smtpSend with smtpRelay, so it uses the same TLS
+// policy and timeouts.
 func sendmail(payload []byte, sendTo []string) (err error) {
-	auth := smtp.PlainAuth(
-		"",
-		cfg.Mail.Username,
-		cfg.Mail.Password,
-		cfg.Mail.SMTPRelay)
-	relay := net.JoinHostPort(cfg.Mail.SMTPRelay, cfg.Mail.SMTPPort)
-	err = smtp.SendMail(relay, auth, cfg.Remailer.Address, sendTo, payload)
+	err = smtpSend(cfg.Mail.SMTPRelay, cfg.Mail.SMTPPort, false, payload, sendTo)
 	if err != nil {
 		log.Warn(err)
-		return
 	}
 	return
 }
