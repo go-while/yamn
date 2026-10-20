@@ -1,0 +1,165 @@
+# Every yamn configuration option with its default value.
+#
+# You don't need to copy this whole file: a yamn.yml only has to contain the
+# options you want to change (see yamn.yml.client and yamn.yml.remailer).
+#
+# yamn looks for its config file in this order and uses the first it finds:
+#   1. --config <file>
+#   2. $YAMNCFG
+#   3. <--dir>/yamn.yml (only if --dir is given)
+#   4. ~/yamn.yml
+#   5. /etc/yamn.yml
+# It never reads a yamn.yml from the current directory (pass --config ./yamn.yml).
+#
+# The test TestExampleDefaults keeps this file in sync with the built-in
+# defaults: if a default changes, update it here.
+
+general:
+    # Log level: trace, debug, info, warn or error
+    loglevel: warn
+    # Log to files.logfile instead of stderr
+    logtofile: false
+    # Log to the systemd journal instead of stderr (not together with logtofile)
+    logtojournal: false
+
+# Paths are relative to --dir, or to the current directory if --dir isn't
+# given.
+files:
+    # Public keyring of all known remailers (downloaded from urls.pubring)
+    pubring: pubring.mix
+    # Remailer statistics (downloaded from urls.mlist2)
+    mlist2: mlist2.txt
+    # This remailer's public key, as published
+    pubkey: key.txt
+    # This remailer's secret keyring
+    secring: secring.mix
+    # The operator's PGP public key, sent in reply to remailer-adminkey
+    adminkey: adminkey.txt
+    # Help text, sent in reply to remailer-help
+    help: help.txt
+    # Directory for inbound and outbound messages
+    pooldir: pool
+    # Maildir the remailer reads incoming mail from. Mail that isn't a yamn
+    # message is moved to its .rejected subfolder and deleted there after
+    # pool.max_age days.
+    maildir: Maildir
+    # Database of seen packet IDs (replay protection)
+    idlog: idlog
+    # Database of partly received multi-chunk messages
+    chunkdb: chunkdb
+    # Log file, used with general.logtofile
+    logfile: yamn.log
+    # Destination block list: addresses that must not receive mail from this
+    # exit. One address or "@domain" per line, "#" starts a comment. Read for
+    # every message, so edits apply immediately. A missing file blocks nobody.
+    dest_block: dest.blk
+
+# Where yamn downloads the public keyring and stats from. A download only
+# replaces the local file if it looks valid.
+urls:
+    # Download the keyring and stats when they are more than an hour old
+    fetch: true
+    pubring: https://www.mixmin.net/yamn/pubring.mix
+    mlist2: https://www.mixmin.net/yamn/mlist2.txt
+
+# How mail is sent. Clients and remailers both need this to work.
+mail:
+    # Send through the configured relay using Go's SMTP client (smtp_relay,
+    # smtp_port, username, password), never directly to recipients' MX.
+    sendmail: false
+    # Pipe mail to this command instead, e.g. "/usr/sbin/sendmail -t".
+    # Overrides sendmail and the built-in SMTP client.
+    pipe: ""
+    # Write outbound mail to files in the pool instead of sending it (testing).
+    # Overrides all other delivery options.
+    outfile: false
+    # Use STARTTLS. The configured relay's certificate is always verified, and
+    # a relay that doesn't offer STARTTLS is refused (except on localhost).
+    usetls: true
+    # Require verified TLS for every delivery, including directly to a
+    # recipient's MX (which otherwise uses opportunistic TLS). Mail that can't
+    # be delivered this way stays in the pool.
+    require_tls: false
+    # SMTP relay and port
+    smtp_relay: fleegle.mixmin.net
+    smtp_port: "587"
+    # Deliver a message with a single recipient directly to that recipient's MX
+    mx_relay: true
+    # Allow .onion hosts as MX
+    onion_relay: false
+    # Envelope sender; empty means remailer.address
+    sender: ""
+    # SMTP login for the relay (only ever sent to smtp_relay, never to an MX)
+    username: ""
+    password: ""
+    # From name and address on mail delivered by an exit
+    outbound_name: Anonymous Remailer
+    outbound_addy: remailer@domain.invalid
+    # Let senders choose their own From address
+    custom_from: false
+    # Domain in the Message-ID of delivered mail; empty means the domain of
+    # remailer.address
+    message_domain: ""
+    # Headers an exit passes through besides its built-in list (To, Cc,
+    # Subject, Reply-To, In-Reply-To, References, Newsgroups, Followup-To,
+    # MIME-Version, X-No-Archive, Content-*). The client applies the same list
+    # to the messages it sends, unless --keep-headers is given.
+    allow_headers: []
+
+# How a client (or a remailer sending dummies) picks random remailers.
+stats:
+    # Latency range in minutes for random remailers
+    minlat: 2
+    maxlat: 60
+    # Minimum uptime in percent for random remailers
+    minrel: 98
+    # Minimum uptime in percent for a random exit remailer
+    rel_final: 99
+    # Default chain; "*" is a random remailer, the last hop is the exit
+    chain: '*,*,*'
+    # Copies of each message to send (overridden by --copies). All copies use
+    # the same exit, which delivers only one. 1 to 5.
+    num_copies: 2
+    # Don't reuse a remailer within this many hops of the chain
+    distance: 2
+    # Warn if the stats are older than this many hours
+    stale_hours: 24
+    # Also consider remailers whose keys have expired
+    use_expired: false
+
+# The outbound pool mixes messages before they're sent.
+pool:
+    # Messages kept in the pool before any are sent
+    size: 5
+    # Percentage of the pool sent per batch
+    rate: 65
+    # Minimum number of messages to consider sending
+    min_send: 5
+    # Seconds between pool runs in daemon mode (at least 120)
+    loop: 300
+    # Delete outbound messages older than this many days; also how long
+    # rejected incoming mail is kept
+    max_age: 28
+
+remailer:
+    # Short name in keyrings and stats, 2 to 12 characters
+    name: anon
+    # The remailer's email address; has to be a real address
+    address: mix@nowhere.invalid
+    # Deliver messages to final recipients. A middle remailer (false) forwards
+    # them to a random exit instead.
+    exit: false
+    # Largest message an exit delivers, in kB; 0 means no limit
+    max_size: 0
+    # Days packet IDs are remembered for replay protection. Must be at least
+    # max_age + 1; shorter values are raised to max_age + 2.
+    id_expire: 16
+    # Days a partly received multi-chunk message is kept
+    chunk_expire: 60
+    # Reject packets older than this many days
+    max_age: 14
+    # Days a remailer key is valid, and how long it's kept after expiring
+    key_life: 14
+    key_grace: 28
+    # Keep running instead of doing a single pass (same as --daemon)
+    daemon: false
