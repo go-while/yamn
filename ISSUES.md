@@ -26,7 +26,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-17](#y-17-data-race-on-stats) | Low | Data race on `stats` | fixed (d94c550) |
 | [Y-18](#y-18-resource-leaks-and-small-cleanups) | Low | Resource leaks and small cleanups | fixed (205d80f) |
 | [Y-19](#y-19-remailer--replies-go-to-a-forgeable-address) | Low | `remailer-*` replies go to a forgeable address | fixed (5e5e2d1) |
-| [Y-20](#y-20-client-does-not-strip-identifying-headers) | Low | Client does not strip identifying headers | open |
+| [Y-20](#y-20-client-does-not-strip-identifying-headers) | Low | Client does not strip identifying headers | fixed (0d01f6a) |
 
 ---
 
@@ -358,3 +358,8 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   `Message-ID` in the user's message are passed through to the exit and
   delivered to the recipient.
 - **Fix:** Strip known identifying headers in the client, or warn about them.
+- **Status:** fixed in `0d01f6a` (branch `fix/20-client-headers`). The client
+  keeps only what an exit passes on (plus Bcc), drops Date and Message-Id,
+  reduces From to the bare address, and reports what it removed;
+  `--keep-headers` turns it off. Stdin messages get the same treatment.
+  Tests: `clientheaders_test.go`.
