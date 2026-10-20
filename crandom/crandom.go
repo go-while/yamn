@@ -61,29 +61,17 @@ func RandomInt(max int) int {
 	return r.Intn(max)
 }
 
-// RandInts returns a randomly ordered slice of ints
-func RandInts(n int) (m []int) {
-	r := rand.New(newCryptoRandSource())
-	m = make([]int, n)
-	var j int
-	for i := 0; i < n; i++ {
-		if i == 0 {
-			j = 0
-		} else {
-			j = r.Intn(i)
-		}
-		m[i] = m[j]
-		m[j] = i
-	}
-	return
+// RandInts returns the integers 0 to n-1 in random order.  Every ordering is
+// equally likely.
+func RandInts(n int) []int {
+	return rand.New(newCryptoRandSource()).Perm(n)
 }
 
-// Shuffle performs an inline Fisher-Yates Shuffle of a string slice
+// Shuffle puts a string slice in random order (Fisher-Yates).  Every ordering
+// is equally likely.
 func Shuffle(slice []string) {
 	r := rand.New(newCryptoRandSource())
-	sliceLen := len(slice)
-	for i := range slice {
-		j := r.Intn(sliceLen)
+	r.Shuffle(len(slice), func(i, j int) {
 		slice[i], slice[j] = slice[j], slice[i]
-	}
+	})
 }

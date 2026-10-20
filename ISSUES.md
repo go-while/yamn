@@ -20,7 +20,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-11](#y-11-failed-download-overwrites-a-good-keyring) | Medium | Failed download overwrites a good keyring | fixed (3e7f17c) |
 | [Y-12](#y-12-non-yamn-mail-is-never-deleted) | Medium | Non-yamn mail is never deleted | fixed (a1bf598) |
 | [Y-13](#y-13-config-file-is-read-from-the-working-directory) | Medium | Config file is read from the working directory | fixed (d9393b0) |
-| [Y-14](#y-14-biased-shuffle) | Low | Biased shuffle | open |
+| [Y-14](#y-14-biased-shuffle) | Low | Biased shuffle | fixed (019b95c) |
 | [Y-15](#y-15-num_copies-config-setting-is-ignored) | Low | `num_copies` config setting is ignored | fixed (f1d760e) |
 | [Y-16](#y-16-packet-size-and-bounds-checks) | Low | Packet size and bounds checks | open |
 | [Y-17](#y-17-data-race-on-stats) | Low | Data race on `stats` | open |
@@ -293,6 +293,8 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   `Intn(i)` instead of `Intn(i+1)`, so it never leaves an element in place.
   It is unused.
 - **Fix:** Use `rand.Shuffle` / `rand.Perm` on the crypto-backed source.
+- **Status:** fixed in `019b95c` (branch `fix/14-shuffle`). Tests:
+  `TestShuffleUniform`, `TestRandIntsUniform` in `crandom/crandom_test.go`.
 
 ### Y-15: `num_copies` config setting is ignored
 
