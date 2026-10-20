@@ -18,7 +18,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-09](#y-09-replay-window) | Medium | Replay window | open |
 | [Y-10](#y-10-malformed-files-crash-yamn) | Medium | Malformed stats / secring files crash yamn | fixed (40678e5) |
 | [Y-11](#y-11-failed-download-overwrites-a-good-keyring) | Medium | Failed download overwrites a good keyring | fixed (3e7f17c) |
-| [Y-12](#y-12-non-yamn-mail-is-never-deleted) | Medium | Non-yamn mail is never deleted | open |
+| [Y-12](#y-12-non-yamn-mail-is-never-deleted) | Medium | Non-yamn mail is never deleted | fixed (a1bf598) |
 | [Y-13](#y-13-config-file-is-read-from-the-working-directory) | Medium | Config file is read from the working directory | open |
 | [Y-14](#y-14-biased-shuffle) | Low | Biased shuffle | open |
 | [Y-15](#y-15-num_copies-config-setting-is-ignored) | Low | `num_copies` config setting is ignored | open |
@@ -251,6 +251,10 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   the loop continues without purging it, and nothing else ever cleans `cur/`.
 - **Fix:** Purge the message on every path, or move unparseable mail to a
   separate folder with expiry.
+- **Status:** fixed in `a1bf598` (branch `fix/12-maildir-rejected`). Mail that
+  can't be processed is moved to `Maildir/.rejected` (readable with a mail
+  client) and deleted there after `pool.max_age` days. Tests:
+  `rejected_test.go`.
 
 ### Y-13: Config file is read from the working directory
 

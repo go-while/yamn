@@ -178,7 +178,7 @@ func processMail(secret *keymgr.Secring) (err error) {
 	for _, key := range keys {
 		head, err = dir.Header(key)
 		if err != nil {
-			log.Warnf("%s: Getting headers failed with: %s", key, err)
+			rejectMail(dir, key, fmt.Sprintf("getting headers failed: %s", err))
 			continue
 		}
 		// The Subject determines if the message needs remailer-foo handling
@@ -206,22 +206,19 @@ func processMail(secret *keymgr.Secring) (err error) {
 		var mailMsg *mail.Message
 		mailMsg, err := dir.Message(key)
 		if err != nil {
-			log.Warnf(
-				"%s: Reading message failed with: %s",
-				key,
-				err,
-			)
+			rejectMail(dir, key, fmt.Sprintf("reading message failed: %s", err))
 			continue
 		}
 		var msg []byte
 		// Convert the armored Yamn message to its byte components
 		msg, err = stripArmor(mailMsg.Body)
 		if err != nil {
-			log.Info(err)
+			rejectMail(dir, key, fmt.Sprintf("not a yamn message (%s), From=%q, Subject=%q",
+				err, head.Get("From"), head.Get("Subject")))
 			continue
 		}
 		if msg == nil {
-			log.Warn("Dearmor returned zero bytes")
+			rejectMail(dir, key, "dearmor returned zero bytes")
 			continue
 		}
 		err = decodeSafely(msg, secret)
@@ -234,6 +231,59 @@ func processMail(secret *keymgr.Secring) (err error) {
 		}
 	} // Maildir keys loop
 	return
+}
+
+// rejectedMaildir is a Maildir++ subfolder for incoming mail that isn't a
+// yamn message (spam, abuse complaints, bounces...).  Operators can read it
+// with a mail client; expireRejected deletes old messages from it.
+func rejectedMaildir() maildir.Dir {
+	return maildir.Dir(path.Join(cfg.Files.Maildir, ".rejected"))
+}
+
+// rejectMail moves a message that can't be processed from the remailer's
+// Maildir to the rejected folder.  If that fails, the message stays where it
+// is.
+func rejectMail(dir maildir.Dir, key, reason string) {
+	rejected := rejectedMaildir()
+	err := rejected.Create()
+	if err == nil {
+		err = dir.Move(rejected, key)
+	}
+	if err != nil {
+		log.Warnf("%s: %s. Moving it to %s failed: %s", key, reason, rejected, err)
+		return
+	}
+	log.Infof("%s: %s. Moved to %s", key, reason, rejected)
+}
+
+// expireRejected deletes messages in the rejected Maildir folder that are
+// older than pool.max_age days.
+func expireRejected() {
+	rejected := rejectedMaildir()
+	maxAge := time.Duration(cfg.Pool.MaxAge) * 24 * time.Hour
+	deleted := 0
+	for _, sub := range []string{"cur", "new"} {
+		subdir := path.Join(string(rejected), sub)
+		entries, err := os.ReadDir(subdir)
+		if err != nil {
+			// The folder only exists once a message has been rejected.
+			continue
+		}
+		for _, e := range entries {
+			info, err := e.Info()
+			if err != nil || e.IsDir() || time.Since(info.ModTime()) <= maxAge {
+				continue
+			}
+			if err := os.Remove(path.Join(subdir, e.Name())); err != nil {
+				log.Warnf("Failed to delete expired rejected mail %s: %s", e.Name(), err)
+				continue
+			}
+			deleted++
+		}
+	}
+	if deleted > 0 {
+		log.Infof("Deleted %d rejected mails older than %d days", deleted, cfg.Pool.MaxAge)
+	}
 }
 
 // processInpool is similar to processMail but reads the Inbound Pool
