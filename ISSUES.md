@@ -21,7 +21,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-12](#y-12-non-yamn-mail-is-never-deleted) | Medium | Non-yamn mail is never deleted | fixed (a1bf598) |
 | [Y-13](#y-13-config-file-is-read-from-the-working-directory) | Medium | Config file is read from the working directory | fixed (d9393b0) |
 | [Y-14](#y-14-biased-shuffle) | Low | Biased shuffle | fixed (019b95c) |
-| [Y-15](#y-15-num_copies-config-setting-is-ignored) | Low | `num_copies` config setting is ignored | open |
+| [Y-15](#y-15-num_copies-config-setting-is-ignored) | Low | `num_copies` config setting is ignored | fixed (f1d760e) |
 | [Y-16](#y-16-packet-size-and-bounds-checks) | Low | Packet size and bounds checks | open |
 | [Y-17](#y-17-data-race-on-stats) | Low | Data race on `stats` | open |
 | [Y-18](#y-18-resource-leaks-and-small-cleanups) | Low | Resource leaks and small cleanups | open |
@@ -302,6 +302,10 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 - **Details:** The `--copies` flag defaults to 2, so `flag.Copies == 0` is
   never true and `stats.num_copies` from the config is never used.
 - **Fix:** Default the flag to 0 so the config value applies.
+- **Status:** fixed in `f1d760e` (branch `fix/15-num-copies`). The flag defaults
+  to "not given" and `num_copies` defaults to 2, so the effective default is
+  unchanged; `num_copies` is now honoured, limited to 1-5. Tests:
+  `copies_test.go`.
 
 ### Y-16: Packet size and bounds checks
 
