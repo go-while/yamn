@@ -14,7 +14,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | fixed (486f1e6) |
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
 | [Y-07](#y-07-exit-header-handling) | Medium | Exit header handling (Bcc leak, no filtering, From spoofing) | fixed (54d7a84) |
-| [Y-08](#y-08-no-abuse-controls-at-the-exit) | Medium | No abuse controls at the exit | open |
+| [Y-08](#y-08-no-abuse-controls-at-the-exit) | Medium | No abuse controls at the exit | fixed (3bc21e1) |
 | [Y-09](#y-09-replay-window) | Medium | Replay window | open |
 | [Y-10](#y-10-malformed-files-crash-yamn) | Medium | Malformed stats / secring files crash yamn | fixed (40678e5) |
 | [Y-11](#y-11-failed-download-overwrites-a-good-keyring) | Medium | Failed download overwrites a good keyring | fixed (3e7f17c) |
@@ -196,6 +196,12 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   to opt out (Mixmaster has `dest.blk`). The `max_size` setting is advertised
   in `remailer-conf` but never enforced.
 - **Fix:** Add a destination block list and enforce `max_size`.
+- **Status:** fixed in `3bc21e1` (branch `fix/08-exit-abuse-controls`).
+  `files.dest_block` (one address or `@domain` per line) is applied at
+  delivery; `remailer.max_size` (kB, default 0 = no limit) is enforced on
+  the exit's plaintext deliveries. Self-service opt-out requests by mail
+  were left out on purpose: `From:` can be forged, so it would need a
+  confirmation step. Tests: `abuse_test.go`.
 
 ### Y-09: Replay window
 
