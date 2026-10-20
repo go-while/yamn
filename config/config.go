@@ -33,6 +33,8 @@ type Config struct {
 		IDlog    string `yaml:"idlog"`
 		ChunkDB  string `yaml:"chunkdb"`
 		Logfile  string `yaml:"logfile"`
+		// Destination block list: one address or "@domain" per line
+		DestBlock string `yaml:"dest_block"`
 	} `yaml:"files"`
 	Urls struct {
 		Fetch   bool   `yaml:"fetch"`
@@ -284,6 +286,7 @@ func (f *Flags) newConfig() *Config {
 	c.Files.IDlog = path.Join(f.Dir, "idlog")
 	c.Files.ChunkDB = path.Join(f.Dir, "chunkdb")
 	c.Files.Logfile = path.Join(f.Dir, "yamn.log")
+	c.Files.DestBlock = path.Join(f.Dir, "dest.blk")
 	c.Urls.Fetch = true
 	c.Urls.Pubring = "https://www.mixmin.net/yamn/pubring.mix"
 	c.Urls.Mlist2 = "https://www.mixmin.net/yamn/mlist2.txt"
@@ -318,7 +321,7 @@ func (f *Flags) newConfig() *Config {
 	c.Remailer.Name = "anon"
 	c.Remailer.Address = "mix@nowhere.invalid"
 	c.Remailer.Exit = false
-	c.Remailer.MaxSize = 12
+	c.Remailer.MaxSize = 0 // Max exit message size in kB, 0 = no limit
 	c.Remailer.IDexp = 14
 	c.Remailer.ChunkExpire = 60
 	// Discard messages if packet timestamp exceeds this age in days

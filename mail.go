@@ -88,6 +88,41 @@ func filterHeaders(h mail.Header) {
 	}
 }
 
+// readDestBlock reads the destination block list.  Each line holds a full
+// address or "@domain"; blank lines and lines starting with "#" are ignored.
+// Entries are lower case.  A missing file is an empty list.
+func readDestBlock(filename string) (map[string]bool, error) {
+	list := make(map[string]bool)
+	content, err := os.ReadFile(filename)
+	if os.IsNotExist(err) {
+		return list, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.ToLower(strings.TrimSpace(line))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		list[line] = true
+	}
+	return list, nil
+}
+
+// destBlocked reports whether addy matches the block list, either as a full
+// address or by its domain.
+func destBlocked(list map[string]bool, addy string) bool {
+	addy = strings.ToLower(addy)
+	if list[addy] {
+		return true
+	}
+	if i := strings.LastIndex(addy, "@"); i >= 0 && list[addy[i:]] {
+		return true
+	}
+	return false
+}
+
 // uniqueStrings returns s without duplicates, keeping the first occurrence.
 func uniqueStrings(s []string) (u []string) {
 	seen := make(map[string]bool)
@@ -264,6 +299,29 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 		delFlag = true
 		return
 	}
+	// Remove recipients who asked not to receive mail from this remailer.
+	// The list is read for every message, so edits apply immediately.  If
+	// it can't be read, keep the message in the pool rather than risk
+	// mailing a blocked recipient.
+	blockList, err := readDestBlock(cfg.Files.DestBlock)
+	if err != nil {
+		err = fmt.Errorf("%s: unable to read destination block list: %w", filename, err)
+		return
+	}
+	var allowed []string
+	for _, addy := range sendTo {
+		if destBlocked(blockList, addy) {
+			log.Infof("%s: recipient %s is on the destination block list", filename, addy)
+			continue
+		}
+		allowed = append(allowed, addy)
+	}
+	if len(allowed) == 0 {
+		err = fmt.Errorf("%s: all recipients are on the destination block list", filename)
+		delFlag = true
+		return
+	}
+	sendTo = allowed
 	// There is an assumption here that all errors from mailBytes should not
 	// delete pool files (delFlag is false by default).
 	err = mailBytes(assemble(*msg), sendTo)

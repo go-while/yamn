@@ -530,10 +530,23 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 
 // smtpMethod is concerned with final-hop processing.
 func smtpMethod(plain []byte, final *slotFinal) (err error) {
+	// remailer.max_size limits the size of delivered messages (0 = none).
+	limit := cfg.Remailer.MaxSize * 1024
 	if final.getNumChunks() == 1 {
+		if limit > 0 && len(plain) > limit {
+			err = fmt.Errorf("message of %d bytes exceeds max_size of %d kB", len(plain), cfg.Remailer.MaxSize)
+			return
+		}
 		// If this is a single chunk message, pool it and get out.
 		writePlainToPool(plain, "m")
 		stats.outPlain++
+		return
+	}
+	// Every chunk but the last is maxFragLength bytes, so a message whose
+	// other chunks already exceed the limit can be rejected now, before its
+	// chunks fill the pool.  The exact size is checked when it's assembled.
+	if limit > 0 && (final.getNumChunks()-1)*maxFragLength >= limit {
+		err = fmt.Errorf("message of %d chunks exceeds max_size of %d kB", final.getNumChunks(), cfg.Remailer.MaxSize)
 		return
 	}
 	// Fetch the chunks info from the DB for the given message ID
@@ -577,6 +590,12 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 	)
 	// Test if all chunk slots are populated
 	if IsPopulated(chunks) {
+		if size := ChunkDb.AssembledSize(chunks); limit > 0 && size > limit {
+			ChunkDb.DeleteItems(chunks)
+			ChunkDb.Delete(final.getMessageID())
+			err = fmt.Errorf("assembled message of %d bytes exceeds max_size of %d kB", size, cfg.Remailer.MaxSize)
+			return
+		}
 		newPoolFile := randPoolFilename("m")
 		log.Tracef(
 			"Assembling chunked message into %s",
@@ -650,7 +669,11 @@ func remailerFoo(subject, sender string) (err error) {
 		m.Text(fmt.Sprintf("Remailer-Type: Mixmaster %s\n", version))
 		m.Text("Supported Formats:\n   Mixmaster\n")
 		m.Text(fmt.Sprintf("Pool size: %d\n", cfg.Pool.Size))
-		m.Text(fmt.Sprintf("Maximum message size: %d kB\n", cfg.Remailer.MaxSize))
+		if cfg.Remailer.MaxSize > 0 {
+			m.Text(fmt.Sprintf("Maximum message size: %d kB\n", cfg.Remailer.MaxSize))
+		} else {
+			m.Text("Maximum message size: unlimited\n")
+		}
 		m.Text("The following header lines will be filtered:\n")
 		m.Text(
 			fmt.Sprintf("\n$remailer{\"%s\"} = \"<%s>",
