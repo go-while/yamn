@@ -140,6 +140,19 @@ func (chunk *Chunk) Assemble(filename string, items []string) (err error) {
 	return
 }
 
+// AssembledSize returns the size of the message the chunk files in items
+// would assemble into, without their internal headers.
+func (chunk *Chunk) AssembledSize(items []string) (size int) {
+	for _, c := range items {
+		content, err := ioutil.ReadFile(path.Join(cfg.Files.Pooldir, c))
+		if err != nil {
+			continue
+		}
+		size += len(stripInternalHeader(content))
+	}
+	return
+}
+
 // stripInternalHeader removes the Yamn-Pooled-Date line that writePlainToPool
 // puts at the start of a pool file.
 func stripInternalHeader(content []byte) []byte {
