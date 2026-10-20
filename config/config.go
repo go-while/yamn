@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -204,46 +205,64 @@ func ParseFlags() *Flags {
 	return f
 }
 
-// findConfig attempts to locate a yamn config file
+// systemConfig is the system-wide config file, tried last.
+var systemConfig = "/etc/yamn.yml"
+
+// findConfig attempts to locate a yamn config file.  The current directory is
+// deliberately not searched: a yamn.yml planted there could redirect the
+// pubring download or SMTP relay, or run a command via mail.pipe.
 func (f *Flags) findConfig() (string, error) {
-	var err error
-	var cfgFile string
+	exists := func(name string) bool {
+		_, err := os.Stat(name)
+		return name != "" && err == nil
+	}
 	// if a --config flag was passed, try that as the highest priority
-	if _, err = os.Stat(f.Config); err == nil {
+	if exists(f.Config) {
 		return f.Config, nil
 	}
 	// Does the environment variable YAMNCFG point to a valid file?
-	if _, err = os.Stat(os.Getenv("YAMNCFG")); err == nil {
-		return os.Getenv("YAMNCFG"), nil
+	if env := os.Getenv("YAMNCFG"); exists(env) {
+		return env, nil
 	}
-	// Is there a yamn.yml in the PWD?
-	pwd, err := os.Getwd()
-	if err == nil {
-		cfgFile = path.Join(pwd, "yamn.yml")
-		if _, err = os.Stat(cfgFile); err == nil {
+	// Is there a yamn.yml file in the --dir directory?  Only if --dir was
+	// set: an empty --dir would mean the current directory.
+	if f.Dir != "" {
+		if cfgFile := path.Join(f.Dir, "yamn.yml"); exists(cfgFile) {
 			return cfgFile, nil
 		}
-	}
-	// Is there a yamn.yml file in the dir flag directory
-	cfgFile = path.Join(f.Dir, "yamn.yml")
-	if _, err = os.Stat(cfgFile); err == nil {
-		return cfgFile, nil
 	}
 	// Look for a yamn.yml in the user's homedir
-	home, err := os.UserHomeDir()
-	if err == nil {
-		cfgFile = path.Join(home, "yamn.yml")
-		if _, err = os.Stat(cfgFile); err == nil {
+	if home, err := os.UserHomeDir(); err == nil {
+		if cfgFile := path.Join(home, "yamn.yml"); exists(cfgFile) {
 			return cfgFile, nil
 		}
 	}
-	// Last gasp: Try /etc/yamn.yml.
-	cfgFile = "/etc/yamn.yml"
-	if _, err = os.Stat(cfgFile); err == nil {
-		return cfgFile, nil
+	// Last gasp: the system-wide config.
+	if exists(systemConfig) {
+		return systemConfig, nil
 	}
 	// Return an error to indicate no config file has been found
 	return "", os.ErrNotExist
+}
+
+// IgnoredLocalConfig reports a yamn.yml in the current directory that isn't
+// the config file in use (used, empty if none).  Earlier versions read it
+// automatically; now it has to be passed with --config.
+func IgnoredLocalConfig(used string) (string, bool) {
+	local, err := filepath.Abs("yamn.yml")
+	if err != nil {
+		return "", false
+	}
+	localInfo, err := os.Stat(local)
+	if err != nil {
+		return "", false
+	}
+	if used != "" {
+		if usedInfo, err := os.Stat(used); err == nil && os.SameFile(localInfo, usedInfo) {
+			return "", false
+		}
+	}
+	return local, true
 }
 
 // newConfig returns a new instance of Config with some predefined defaults

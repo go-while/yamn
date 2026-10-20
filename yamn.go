@@ -86,6 +86,13 @@ func main() {
 	} else {
 		log.Warn("No config file was found. Resorting to defaults")
 	}
+	if local, ok := config.IgnoredLocalConfig(cfg.Files.Config); ok {
+		log.Warnf(
+			"Ignoring %s: yamn no longer reads yamn.yml from the current "+
+				"directory. Use --config %s to use it.",
+			local, local,
+		)
+	}
 
 	// Setup complete, time to do some work
 	if flag.Client {
