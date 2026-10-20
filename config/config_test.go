@@ -101,3 +101,87 @@ func TestEmptyConfig(t *testing.T) {
 		}
 	}
 }
+
+// isolateConfigLookup runs the test in an empty working directory with an
+// empty home directory, no YAMNCFG and no system config.  It returns the
+// working and home directories.
+func isolateConfigLookup(t *testing.T) (cwd, home string) {
+	t.Helper()
+	cwd, home = t.TempDir(), t.TempDir()
+	t.Chdir(cwd)
+	t.Setenv("HOME", home)
+	t.Setenv("YAMNCFG", "")
+	oldSystem := systemConfig
+	systemConfig = filepath.Join(t.TempDir(), "yamn.yml")
+	t.Cleanup(func() { systemConfig = oldSystem })
+	return
+}
+
+func writeConfigFile(t *testing.T, name string) string {
+	t.Helper()
+	if err := os.WriteFile(name, []byte("---\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return name
+}
+
+// TestFindConfigIgnoresWorkingDir checks that a yamn.yml in the current
+// directory is not picked up, with or without an empty --dir.
+func TestFindConfigIgnoresWorkingDir(t *testing.T) {
+	cwd, _ := isolateConfigLookup(t)
+	writeConfigFile(t, filepath.Join(cwd, "yamn.yml"))
+	f := &Flags{}
+	if got, err := f.findConfig(); err == nil {
+		t.Fatalf("findConfig should not use ./yamn.yml, got %s", got)
+	}
+}
+
+func TestFindConfigOrder(t *testing.T) {
+	cwd, home := isolateConfigLookup(t)
+	writeConfigFile(t, filepath.Join(cwd, "yamn.yml"))
+	dir := t.TempDir()
+	flagCfg := writeConfigFile(t, filepath.Join(t.TempDir(), "flag.yml"))
+	envCfg := writeConfigFile(t, filepath.Join(t.TempDir(), "env.yml"))
+	dirCfg := writeConfigFile(t, filepath.Join(dir, "yamn.yml"))
+	homeCfg := writeConfigFile(t, filepath.Join(home, "yamn.yml"))
+	sysCfg := writeConfigFile(t, systemConfig)
+
+	check := func(name string, f *Flags, want string) {
+		t.Helper()
+		got, err := f.findConfig()
+		if err != nil || got != want {
+			t.Errorf("%s: findConfig() = %q, %v; want %q", name, got, err, want)
+		}
+	}
+	check("--config first", &Flags{Config: flagCfg, Dir: dir}, flagCfg)
+	t.Setenv("YAMNCFG", envCfg)
+	check("then YAMNCFG", &Flags{Dir: dir}, envCfg)
+	t.Setenv("YAMNCFG", "")
+	check("then --dir", &Flags{Dir: dir}, dirCfg)
+	check("then home", &Flags{}, homeCfg)
+	os.Remove(homeCfg)
+	check("then system", &Flags{}, sysCfg)
+	// ./yamn.yml still works when asked for explicitly.
+	check("explicit --config ./yamn.yml", &Flags{Config: "yamn.yml"}, "yamn.yml")
+}
+
+func TestIgnoredLocalConfig(t *testing.T) {
+	cwd, _ := isolateConfigLookup(t)
+	if _, ok := IgnoredLocalConfig(""); ok {
+		t.Error("No ./yamn.yml: nothing to warn about")
+	}
+	local := writeConfigFile(t, filepath.Join(cwd, "yamn.yml"))
+	if got, ok := IgnoredLocalConfig(""); !ok || filepath.Base(got) != "yamn.yml" {
+		t.Errorf("Unused ./yamn.yml should be reported, got %q, %v", got, ok)
+	}
+	other := writeConfigFile(t, filepath.Join(t.TempDir(), "other.yml"))
+	if _, ok := IgnoredLocalConfig(other); !ok {
+		t.Error("./yamn.yml unused while another config is in use should be reported")
+	}
+	if _, ok := IgnoredLocalConfig("yamn.yml"); ok {
+		t.Error("./yamn.yml passed with --config is in use: no warning")
+	}
+	if _, ok := IgnoredLocalConfig(local); ok {
+		t.Error("./yamn.yml in use (absolute path): no warning")
+	}
+}

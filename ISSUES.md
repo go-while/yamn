@@ -19,7 +19,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-10](#y-10-malformed-files-crash-yamn) | Medium | Malformed stats / secring files crash yamn | fixed (40678e5) |
 | [Y-11](#y-11-failed-download-overwrites-a-good-keyring) | Medium | Failed download overwrites a good keyring | fixed (3e7f17c) |
 | [Y-12](#y-12-non-yamn-mail-is-never-deleted) | Medium | Non-yamn mail is never deleted | fixed (a1bf598) |
-| [Y-13](#y-13-config-file-is-read-from-the-working-directory) | Medium | Config file is read from the working directory | open |
+| [Y-13](#y-13-config-file-is-read-from-the-working-directory) | Medium | Config file is read from the working directory | fixed (d9393b0) |
 | [Y-14](#y-14-biased-shuffle) | Low | Biased shuffle | open |
 | [Y-15](#y-15-num_copies-config-setting-is-ignored) | Low | `num_copies` config setting is ignored | open |
 | [Y-16](#y-16-packet-size-and-bounds-checks) | Low | Packet size and bounds checks | open |
@@ -265,6 +265,11 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   `~/yamn.yml` and `/etc/yamn.yml`.
 - **Fix:** Drop the working-directory lookup, or move it below the home and
   system locations and warn when it is used.
+- **Status:** fixed in `d9393b0` (branch `fix/13-config-cwd`). The
+  working-directory lookup is dropped (also via an unset `--dir`). Lookup
+  order: `--config`, `$YAMNCFG`, `<--dir>/yamn.yml` (if set), `~/yamn.yml`,
+  `/etc/yamn.yml`. An unused `./yamn.yml` triggers a warning pointing to
+  `--config`. Tests: `config/config_test.go`.
 
 ## Low
 
