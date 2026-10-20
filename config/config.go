@@ -212,6 +212,8 @@ func ParseFlags() *Flags {
 	flag.BoolVar(&f.Refresh, "refresh", false, "Refresh remailer stats files")
 
 	flag.Parse()
+	// The message file, or recipient and message file, for client mode
+	f.Args = flag.Args()
 	return f
 }
 

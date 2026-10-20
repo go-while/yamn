@@ -27,6 +27,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-18](#y-18-resource-leaks-and-small-cleanups) | Low | Resource leaks and small cleanups | fixed (205d80f) |
 | [Y-19](#y-19-remailer--replies-go-to-a-forgeable-address) | Low | `remailer-*` replies go to a forgeable address | fixed (5e5e2d1) |
 | [Y-20](#y-20-client-does-not-strip-identifying-headers) | Low | Client does not strip identifying headers | fixed (0d01f6a) |
+| [Y-21](#y-21-client-ignores-the-message-file-argument) | Medium | Client ignores the message file argument | fixed (13fcf17) |
 
 ---
 
@@ -280,6 +281,20 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   order: `--config`, `$YAMNCFG`, `<--dir>/yamn.yml` (if set), `~/yamn.yml`,
   `/etc/yamn.yml`. An unused `./yamn.yml` triggers a warning pointing to
   `--config`. Tests: `config/config_test.go`.
+
+### Y-21: Client ignores the message file argument
+
+- **Where:** `config/config.go` (`ParseFlags`), read in `client.go` (`mixprep`)
+- **Found:** 2026-10-20, while testing `--stdout` with the real binary (not
+  part of the original review).
+- **Impact:** `yamn -m message.txt` ignored the file and waited for the
+  message on stdin; `yamn -m recipient message.txt` ignored both arguments.
+- **Details:** `config.Flags.Args` was never filled. It broke when the flags
+  moved into the config package (upstream `9d9edb5`, 2021-08-15), which
+  replaced `flagArgs` (from `flag.Args()`) with `flags.Args` without setting
+  it. Tests set `flag.Args` directly, so they didn't notice.
+- **Status:** fixed in `13fcf17` (branch `fix/21-client-args`): `ParseFlags` sets
+  `f.Args = flag.Args()`. Test: `TestFlagsArgs` in `config/config_test.go`.
 
 ## Low
 

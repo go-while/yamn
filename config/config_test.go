@@ -198,3 +198,31 @@ func TestDefaultCopies(t *testing.T) {
 		t.Errorf("Default num_copies: got %d, want 2", c.Stats.Numcopies)
 	}
 }
+
+// TestFlagsArgs checks that the non-flag arguments (message file, or
+// recipient and message file) reach Flags.Args.
+func TestFlagsArgs(t *testing.T) {
+	for _, tt := range []struct {
+		cmdline []string
+		want    []string
+	}{
+		{[]string{"yamn", "-m"}, nil},
+		{[]string{"yamn", "-m", "message.txt"}, []string{"message.txt"}},
+		{[]string{"yamn", "-m", "-c", "1", "bob@example.invalid", "message.txt"}, []string{"bob@example.invalid", "message.txt"}},
+	} {
+		oldCommandLine, oldArgs := flag.CommandLine, os.Args
+		flag.CommandLine = flag.NewFlagSet("yamn", flag.ContinueOnError)
+		os.Args = tt.cmdline
+		f := ParseFlags()
+		flag.CommandLine, os.Args = oldCommandLine, oldArgs
+		if len(f.Args) != len(tt.want) {
+			t.Errorf("%q: Args = %q, want %q", tt.cmdline, f.Args, tt.want)
+			continue
+		}
+		for i := range tt.want {
+			if f.Args[i] != tt.want[i] {
+				t.Errorf("%q: Args = %q, want %q", tt.cmdline, f.Args, tt.want)
+			}
+		}
+	}
+}
