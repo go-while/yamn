@@ -263,8 +263,8 @@ func (f *Flags) newConfig() *Config {
 	c.Files.ChunkDB = path.Join(f.Dir, "chunkdb")
 	c.Files.Logfile = path.Join(f.Dir, "yamn.log")
 	c.Urls.Fetch = true
-	c.Urls.Pubring = "http://www.mixmin.net/yamn/pubring.mix"
-	c.Urls.Mlist2 = "http://www.mixmin.net/yamn/mlist2.txt"
+	c.Urls.Pubring = "https://www.mixmin.net/yamn/pubring.mix"
+	c.Urls.Mlist2 = "https://www.mixmin.net/yamn/mlist2.txt"
 	c.Mail.Sendmail = false
 	c.Mail.Outfile = false
 	c.Mail.SMTPRelay = "fleegle.mixmin.net"
