@@ -11,7 +11,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | fixed (6c0fb7e) |
 | [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c) |
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | fixed (a4ad3ce) |
-| [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | open |
+| [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | fixed (486f1e6) |
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
 | [Y-07](#y-07-exit-header-handling) | Medium | Exit header handling (Bcc leak, no filtering, From spoofing) | open |
 | [Y-08](#y-08-no-abuse-controls-at-the-exit) | Medium | No abuse controls at the exit | open |
@@ -145,6 +145,10 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   share one). Strip the internal header from chunks 2..n when assembling, or
   store chunks without it. Choose the exit once per message, not per chunk.
   Add a multi-chunk case to `roundtrip_test.go`.
+- **Status:** fixed in `486f1e6` (branch `fix/05-multi-chunk`). Fresh packet ID
+  per chunk (`slotFinal.newPacketID`), exit chosen once per message,
+  internal headers stripped on assembly. Tests: `chunks_test.go` runs the
+  real client on 3- and 6-chunk messages through middle and exit remailers.
 
 ### Y-06: SMTP has no timeouts
 

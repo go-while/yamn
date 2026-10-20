@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -117,6 +118,10 @@ func (chunk *Chunk) Assemble(filename string, items []string) (err error) {
 		return
 	}
 	defer f.Close()
+	// Each chunk file starts with its own internal header.  Write one for the
+	// assembled message and strip them from the chunks, otherwise they end up
+	// in the middle of the delivered message.
+	writeInternalHeader(f)
 	var content []byte
 	for _, c := range items {
 		infile := path.Join(cfg.Files.Pooldir, c)
@@ -125,7 +130,7 @@ func (chunk *Chunk) Assemble(filename string, items []string) (err error) {
 			log.Warnf("Chunk assembler says: %s", err)
 			continue
 		}
-		f.Write(content)
+		f.Write(stripInternalHeader(content))
 		err = os.Remove(infile)
 		if err != nil {
 			log.Warnf("Assembler chunk delete failed: %s", err)
@@ -133,6 +138,18 @@ func (chunk *Chunk) Assemble(filename string, items []string) (err error) {
 		}
 	}
 	return
+}
+
+// stripInternalHeader removes the Yamn-Pooled-Date line that writePlainToPool
+// puts at the start of a pool file.
+func stripInternalHeader(content []byte) []byte {
+	if !bytes.HasPrefix(content, []byte("Yamn-Pooled-Date: ")) {
+		return content
+	}
+	if i := bytes.IndexByte(content, '\n'); i >= 0 {
+		return content[i+1:]
+	}
+	return nil
 }
 
 // Delete removes the specified Message ID from the DB

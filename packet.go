@@ -422,6 +422,14 @@ func (f *slotFinal) getPacketID() []byte {
 	return f.packetID
 }
 
+// newPacketID gives the Final header a fresh random Packet ID.  Each chunk of
+// a message needs its own ID, otherwise the exit's replay protection rejects
+// every chunk after the first.  Copies of the same chunk share one ID, so the
+// exit delivers that chunk only once.
+func (f *slotFinal) newPacketID() {
+	f.packetID = crandom.Randbytes(16)
+}
+
 func (f *slotFinal) getNumChunks() int {
 	return int(f.numChunks)
 }
