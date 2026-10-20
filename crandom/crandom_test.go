@@ -1,6 +1,7 @@
 package crandom
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 )
@@ -114,4 +115,51 @@ func TestRandBytes(t *testing.T) {
 			t.Errorf("Suspiciously high number of matching bytes in random data. Byte=%d, Count=%d", b, count)
 		}
 	}
+}
+
+// permutationCounts runs perm n times and counts how often each ordering of
+// three elements comes up.
+func permutationCounts(n int, perm func() string) map[string]int {
+	counts := make(map[string]int)
+	for range n {
+		counts[perm()]++
+	}
+	return counts
+}
+
+// checkUniform fails if any of the 6 orderings of three elements is more
+// than 5% away from its expected share.  With 60000 runs that's about 5.5
+// standard deviations, so a uniform shuffle practically never fails, while
+// the naive shuffle (some orderings 4/27, others 5/27) always does.
+func checkUniform(t *testing.T, name string, counts map[string]int, runs int) {
+	t.Helper()
+	if len(counts) != 6 {
+		t.Errorf("%s: expected 6 different orderings, got %d: %v", name, len(counts), counts)
+		return
+	}
+	expected := runs / 6
+	for order, c := range counts {
+		if c < expected*95/100 || c > expected*105/100 {
+			t.Errorf("%s: ordering %s came up %d times, expected about %d: %v", name, order, c, expected, counts)
+		}
+	}
+}
+
+func TestShuffleUniform(t *testing.T) {
+	const runs = 60000
+	counts := permutationCounts(runs, func() string {
+		s := []string{"a", "b", "c"}
+		Shuffle(s)
+		return s[0] + s[1] + s[2]
+	})
+	checkUniform(t, "Shuffle", counts, runs)
+}
+
+func TestRandIntsUniform(t *testing.T) {
+	const runs = 60000
+	counts := permutationCounts(runs, func() string {
+		m := RandInts(3)
+		return fmt.Sprint(m)
+	})
+	checkUniform(t, "RandInts", counts, runs)
 }
