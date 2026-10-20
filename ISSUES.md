@@ -12,7 +12,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | open |
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | open |
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | open |
-| [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | open |
+| [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
 | [Y-07](#y-07-exit-header-handling) | Medium | Exit header handling (Bcc leak, no filtering, From spoofing) | open |
 | [Y-08](#y-08-no-abuse-controls-at-the-exit) | Medium | No abuse controls at the exit | open |
 | [Y-09](#y-09-replay-window) | Medium | Replay window | open |
@@ -79,9 +79,9 @@ Status values: **open**, **in progress**, **fixed** (with commit).
     verified TLS for every delivery.
   - Relay on localhost: plaintext or any certificate accepted.
   - Credentials are only sent to the configured relay, never to an MX.
-  - Remaining gap: `require_tls` is not applied in `sendmail: true` mode
-    (`net/smtp.SendMail` verifies certificates but sends plaintext when
-    STARTTLS is not offered).
+  - ~~Remaining gap: `require_tls` is not applied in `sendmail: true` mode.~~
+    Closed in `f894bf0` (Y-06): sendmail mode now uses `smtpSend` and the
+    same relay TLS policy.
   - Tests: `mail_test.go`.
 
 ### Y-03: Public keyring is trusted without verification
@@ -140,6 +140,11 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   sender goroutine, and with it the whole outbound pool, indefinitely.
 - **Fix:** Use `net.DialTimeout` and set a deadline on the connection for the
   whole SMTP exchange. Close `conn` on every error path.
+- **Status:** fixed in `f894bf0` (branch `fix/06-smtp-timeouts`). 30s dial
+  timeout, 5 minute deadline on the whole SMTP exchange, connection closed on
+  every path. `sendmail: true` mode now uses the same code (`smtpSend`)
+  instead of `net/smtp.SendMail`, so it gets the timeouts too. Tests:
+  `TestSmtpSendTimeout`, `TestSendmailUsesSmtpSend` in `mail_test.go`.
 
 ### Y-07: Exit header handling
 
@@ -267,7 +272,8 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 
 - `ImportPubring`, `ImportStats` and `Headers` (`keymgr/public.go`) never close
   their files.
-- `smtpRelay` (`mail.go`) leaves the connection open on error paths.
+- ~~`smtpRelay` (`mail.go`) leaves the connection open on error paths.~~
+  Fixed in `f894bf0` (Y-06).
 - `Chunk.Expire` (`chunker.go`) shifts the items with `copy` without
   shortening the slice, so the last chunk file is processed twice.
 
