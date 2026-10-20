@@ -75,6 +75,19 @@ chunk, each addressed to its first remailer.  No dummy message is sent.  A
 remailer can read this output with
 .BR -R .
 .TP
+.B "--import"
+Read encrypted mails from STDIN, as written by
+.BR --stdout ,
+and store them in the Pool, to be sent with
+.BR -S .
+STDIN may hold an mbox or a single mail.  Each mail must carry a valid yamn
+packet; others are reported and skipped.  This allows encrypting a message on
+one machine and sending it from another, which never sees the plaintext:
+.B "yamn -m --stdout < msg > out.mbox"
+on the first,
+.B "yamn --import -S < out.mbox"
+on the second.
+.TP
 .B "-t, --to=\fIuser@host"
 Specify a recipient for the message.  If this option isn't defined, the recipient
 is expected to be included in the message itself.

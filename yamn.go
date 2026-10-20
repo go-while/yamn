@@ -97,6 +97,19 @@ func main() {
 	// Setup complete, time to do some work
 	if flag.Client {
 		mixprep()
+	} else if flag.Import {
+		if err := os.MkdirAll(cfg.Files.Pooldir, 0700); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		imported, errs := importMails(os.Stdin)
+		for _, err := range errs {
+			fmt.Fprintf(os.Stderr, "Not imported: %s\n", err)
+		}
+		fmt.Fprintf(os.Stderr, "Imported %d mails into the pool\n", imported)
+		if len(errs) > 0 {
+			os.Exit(1)
+		}
 	} else if flag.Stdin {
 		stdin, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {

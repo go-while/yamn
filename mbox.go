@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/mail"
 	"regexp"
 	"strings"
 	"time"
@@ -94,4 +95,45 @@ func splitMbox(data []byte) (mails [][]byte) {
 	}
 	finish()
 	return
+}
+
+// importMails reads encrypted yamn mails from r (an mbox as written by
+// --stdout, or a single mail) and puts each one into the pool, to be sent
+// later (--import, then -S).  Every mail must have a single To address and
+// a valid armored yamn packet; anything else is skipped and reported.
+func importMails(r io.Reader) (imported int, errs []error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return 0, []error{err}
+	}
+	mails := [][]byte{data}
+	if isMbox(data) {
+		mails = splitMbox(data)
+	}
+	for i, m := range mails {
+		if err := importMail(m); err != nil {
+			errs = append(errs, fmt.Errorf("mail %d: %w", i+1, err))
+			continue
+		}
+		imported++
+	}
+	return
+}
+
+// importMail checks one encrypted mail and writes it into the pool the same
+// way the client would.
+func importMail(m []byte) error {
+	msg, err := mail.ReadMessage(bytes.NewReader(m))
+	if err != nil {
+		return fmt.Errorf("not a mail: %w", err)
+	}
+	to, err := mail.ParseAddress(msg.Header.Get("To"))
+	if err != nil {
+		return fmt.Errorf("no valid To address: %w", err)
+	}
+	payload, err := stripArmor(bytes.NewReader(m))
+	if err != nil {
+		return fmt.Errorf("no valid yamn packet: %w", err)
+	}
+	return writeMessageToPool(to.Address, payload)
 }

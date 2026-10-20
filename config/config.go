@@ -112,6 +112,7 @@ type Flags struct {
 	Copies   int
 	Stdin    bool
 	Stdout   bool
+	Import   bool
 	Dummy    bool
 	NoDummy  bool
 	// Send identifying headers (User-Agent, Date, ...) instead of removing them
@@ -194,6 +195,8 @@ func ParseFlags() *Flags {
 	flag.BoolVar(&f.Stdin, "R", false, "Read a message from stdin")
 	// Write to STDOUT
 	flag.BoolVar(&f.Stdout, "stdout", false, "Write the encrypted mails to stdout (mbox) instead of the pool")
+	// Import encrypted mails (e.g. --stdout output) into the pool
+	flag.BoolVar(&f.Import, "import", false, "Read encrypted mails (mbox) from stdin into the pool; send with -S")
 	// Inject dummy
 	flag.BoolVar(&f.Dummy, "dummy", false, "Inject a dummy message")
 	flag.BoolVar(&f.Dummy, "d", false, "Inject a dummy message")
