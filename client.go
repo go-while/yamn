@@ -84,8 +84,8 @@ func mixprep() {
 	// Download stats URLs if the time is right
 	if cfg.Urls.Fetch {
 		// Retrieve Mlist2 and Pubring URLs
-		timedURLFetch(cfg.Urls.Pubring, cfg.Files.Pubring)
-		timedURLFetch(cfg.Urls.Mlist2, cfg.Files.Mlist2)
+		timedURLFetch(cfg.Urls.Pubring, cfg.Files.Pubring, keymgr.CheckPubring)
+		timedURLFetch(cfg.Urls.Mlist2, cfg.Files.Mlist2, keymgr.CheckStats)
 	}
 
 	// Create the Public Keyring
@@ -306,7 +306,7 @@ func injectDummy() {
 
 // TimedURLFetch attempts to read a url into a file if the file is more
 // than an hour old or doesn't exist.
-func timedURLFetch(url, filename string) {
+func timedURLFetch(url, filename string, validate func([]byte) error) {
 	var err error
 	var stamp time.Time
 	var doFetch bool
@@ -321,7 +321,7 @@ func timedURLFetch(url, filename string) {
 		}
 		if doFetch {
 			log.Infof("Fetching %s and storing in %s", url, filename)
-			err = httpGet(url, filename)
+			err = httpGet(url, filename, validate)
 			if err != nil {
 				log.Warn(err)
 			}

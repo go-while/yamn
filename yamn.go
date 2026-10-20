@@ -113,9 +113,13 @@ func main() {
 		injectDummy()
 	} else if flag.Refresh {
 		fmt.Printf("Keyring refresh: from=%s, to=%s\n", cfg.Urls.Pubring, cfg.Files.Pubring)
-		httpGet(cfg.Urls.Pubring, cfg.Files.Pubring)
+		if err := httpGet(cfg.Urls.Pubring, cfg.Files.Pubring, keymgr.CheckPubring); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		fmt.Printf("Stats refresh: from=%s, to=%s\n", cfg.Urls.Mlist2, cfg.Files.Mlist2)
-		httpGet(cfg.Urls.Mlist2, cfg.Files.Mlist2)
+		if err := httpGet(cfg.Urls.Mlist2, cfg.Files.Mlist2, keymgr.CheckStats); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
 	}
 	if flag.Send {
 		// Flush the outbound pool

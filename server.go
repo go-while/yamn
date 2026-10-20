@@ -28,8 +28,8 @@ func loopServer() (err error) {
 		cfg.Files.Mlist2,
 	)
 	// Fetch keyring and stats URLs
-	timedURLFetch(cfg.Urls.Pubring, cfg.Files.Pubring)
-	timedURLFetch(cfg.Urls.Mlist2, cfg.Files.Mlist2)
+	timedURLFetch(cfg.Urls.Pubring, cfg.Files.Pubring, keymgr.CheckPubring)
+	timedURLFetch(cfg.Urls.Mlist2, cfg.Files.Mlist2, keymgr.CheckStats)
 	// Initialize the Secret Keyring
 	secret := keymgr.NewSecring(cfg.Files.Secring, cfg.Files.Pubkey)
 	Pubring.ImportPubring()
@@ -149,10 +149,12 @@ func loopServer() (err error) {
 				timedURLFetch(
 					cfg.Urls.Pubring,
 					cfg.Files.Pubring,
+					keymgr.CheckPubring,
 				)
 				timedURLFetch(
 					cfg.Urls.Mlist2,
 					cfg.Files.Mlist2,
+					keymgr.CheckStats,
 				)
 			}
 			// Test to see if the pubring.mix file has been updated
