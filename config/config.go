@@ -322,7 +322,9 @@ func (f *Flags) newConfig() *Config {
 	c.Remailer.Address = "mix@nowhere.invalid"
 	c.Remailer.Exit = false
 	c.Remailer.MaxSize = 0 // Max exit message size in kB, 0 = no limit
-	c.Remailer.IDexp = 14
+	// Keep packet IDs longer than packets are accepted (max_age), so a
+	// packet can't be replayed after its ID expires.
+	c.Remailer.IDexp = 16
 	c.Remailer.ChunkExpire = 60
 	// Discard messages if packet timestamp exceeds this age in days
 	c.Remailer.MaxAge = 14

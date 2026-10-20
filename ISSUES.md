@@ -15,7 +15,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
 | [Y-07](#y-07-exit-header-handling) | Medium | Exit header handling (Bcc leak, no filtering, From spoofing) | fixed (54d7a84) |
 | [Y-08](#y-08-no-abuse-controls-at-the-exit) | Medium | No abuse controls at the exit | fixed (3bc21e1) |
-| [Y-09](#y-09-replay-window) | Medium | Replay window | open |
+| [Y-09](#y-09-replay-window) | Medium | Replay window | fixed (b364696) |
 | [Y-10](#y-10-malformed-files-crash-yamn) | Medium | Malformed stats / secring files crash yamn | fixed (40678e5) |
 | [Y-11](#y-11-failed-download-overwrites-a-good-keyring) | Medium | Failed download overwrites a good keyring | fixed (3e7f17c) |
 | [Y-12](#y-12-non-yamn-mail-is-never-deleted) | Medium | Non-yamn mail is never deleted | fixed (a1bf598) |
@@ -218,6 +218,10 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 - **Fix:** Require `id_expire > max_age` (warn in `nagOperator` or clamp), with
   a margin of a day or more. Record the ID only after the packet passes the
   other checks.
+- **Status:** fixed in `b364696` (branch `fix/09-replay-window`). `id_expire`
+  below `max_age+1` is clamped to `max_age+2` with a warning; the default is
+  now 16 days. The packet ID is recorded after the anti-tag and age checks.
+  Tests: `replay_test.go`.
 
 ### Y-10: Malformed files crash yamn
 

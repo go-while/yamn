@@ -46,7 +46,7 @@ func loopServer() (err error) {
 	// Open the IDlog
 	log.Tracef("Opening ID Log: %s", cfg.Files.IDlog)
 	// NewInstance takes the filename and entry validity in days
-	IDDb = idlog.NewIDLog(cfg.Files.IDlog, cfg.Remailer.IDexp)
+	IDDb = idlog.NewIDLog(cfg.Files.IDlog, replayLogDays())
 	defer IDDb.Close()
 	// Open the chunk DB
 	log.Tracef("Opening the Chunk DB: %s", cfg.Files.ChunkDB)
@@ -356,6 +356,27 @@ func checkNextHop(addr string) error {
 	return nil
 }
 
+// replayLogDays returns how many days packet IDs are kept in the ID log.  A
+// packet is accepted until it's max_age days old, so its ID must be kept at
+// least max_age+1 days (it may arrive at the very start of its stamp day).
+// Shorter settings would let a packet be replayed after its ID has expired,
+// so they're raised to max_age+2, a day of margin.
+func replayLogDays() int {
+	minimum := cfg.Remailer.MaxAge + 1
+	if cfg.Remailer.IDexp >= minimum {
+		return cfg.Remailer.IDexp
+	}
+	days := cfg.Remailer.MaxAge + 2
+	log.Warnf(
+		"remailer.id_expire (%d days) must be at least remailer.max_age+1 (%d) "+
+			"to prevent replays. Using %d days.",
+		cfg.Remailer.IDexp,
+		minimum,
+		days,
+	)
+	return days
+}
+
 // decodeSafely runs decodeMsg and turns a panic into an error.  Received
 // messages come from untrusted senders, so a bug triggered by one message
 // must drop that message instead of stopping the remailer.
@@ -408,11 +429,6 @@ func decodeMsg(rawMsg []byte, secret *keymgr.Secring) (err error) {
 func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 	// Convert the raw Slot Data Bytes to meaningful slotData.
 	slotData := decodeSlotData(slotDataBytes)
-	// Test uniqueness of packet ID
-	if !IDDb.Unique(slotData.getPacketID()) {
-		err = errors.New("packet ID collision")
-		return
-	}
 	if !d.testAntiTag(slotData.getTagHash()) {
 		log.Warn("Anti-tag digest mismatch")
 		return
@@ -427,6 +443,13 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 	}
 	if slotData.ageTimestamp() < 0 {
 		log.Warn("Packet timestamp is in the future. Rejecting")
+		return
+	}
+	// Test uniqueness of packet ID.  This runs after the checks above, so a
+	// tampered or expired copy can't record the ID and get the genuine
+	// packet rejected as a replay.
+	if !IDDb.Unique(slotData.getPacketID()) {
+		err = errors.New("packet ID collision")
 		return
 	}
 	if slotData.getPacketType() == 0 {
