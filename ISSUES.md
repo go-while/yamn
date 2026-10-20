@@ -25,7 +25,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-16](#y-16-packet-size-and-bounds-checks) | Low | Packet size and bounds checks | fixed (73de26b) |
 | [Y-17](#y-17-data-race-on-stats) | Low | Data race on `stats` | fixed (d94c550) |
 | [Y-18](#y-18-resource-leaks-and-small-cleanups) | Low | Resource leaks and small cleanups | fixed (205d80f) |
-| [Y-19](#y-19-remailer--replies-go-to-a-forgeable-address) | Low | `remailer-*` replies go to a forgeable address | open |
+| [Y-19](#y-19-remailer--replies-go-to-a-forgeable-address) | Low | `remailer-*` replies go to a forgeable address | fixed (5e5e2d1) |
 | [Y-20](#y-20-client-does-not-strip-identifying-headers) | Low | Client does not strip identifying headers | open |
 
 ---
@@ -346,6 +346,10 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 - **Details:** Replies to `remailer-key`, `remailer-help` and similar go to the
   incoming `From:` header, so anyone can direct them at a third party. This
   matches Mixmaster behaviour but could be rate-limited.
+- **Status:** fixed in `5e5e2d1` (branch `fix/19-remailer-foo-limit`). One reply
+  per address per UTC day, tracked as 64-bit keyed hashes (HMAC-SHA256 with
+  a random startup key) rather than addresses. Also fixed: replies failed
+  for a `From:` with a display name. Tests: `foo_test.go`.
 
 ### Y-20: Client does not strip identifying headers
 

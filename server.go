@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"net/mail"
 	"os"
 	"path"
 	"runtime/debug"
@@ -672,7 +673,20 @@ func randhop(plainMsg []byte) {
 }
 
 // remailerFoo responds to requests for remailer-* info
-func remailerFoo(subject, sender string) (err error) {
+func remailerFoo(subject, from string) (err error) {
+	// Reply to the bare address: the From header usually includes a display
+	// name ("Alice <alice@example.org>"), which isn't a valid SMTP recipient.
+	fromAddr, err := mail.ParseAddress(from)
+	if err != nil {
+		err = fmt.Errorf("ignoring remailer-* request with invalid From %q: %w", from, err)
+		return
+	}
+	sender := fromAddr.Address
+	// The From header can be forged, so reply at most once a day per address.
+	if !fooReplies.allowed(sender) {
+		err = fmt.Errorf("already replied to %s today, ignoring %s", sender, subject)
+		return
+	}
 	m := quickmail.NewMessage()
 	m.Set("From", cfg.Remailer.Address)
 	m.Set("To", sender)
@@ -750,5 +764,7 @@ func remailerFoo(subject, sender string) (err error) {
 		log.Warnf("Failed to send %s to %s", subject, sender)
 		return
 	}
+	// Only count replies that were sent, so a failed send can be retried.
+	fooReplies.record(sender)
 	return
 }
