@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,9 +22,11 @@ func assemble(msg mail.Message) []byte {
 	for h := range msg.Header {
 		if strings.HasPrefix(h, "Yamn-") {
 			log.Errorf("Ignoring internal mail header in assemble phase: %s", h)
-		} else {
-			buf.WriteString(h + ": " + msg.Header.Get(h) + "\n")
-			//fmt.Printf("%s: %s\n", h, msg.Header.Get(h))
+			continue
+		}
+		// Keep every value of a header that occurs more than once.
+		for _, v := range msg.Header[h] {
+			buf.WriteString(h + ": " + v + "\n")
 		}
 	}
 	buf.WriteString("\n")
@@ -31,18 +34,68 @@ func assemble(msg mail.Message) []byte {
 	return buf.Bytes()
 }
 
-// headToAddy parses a header containing email addresses
+// headToAddy parses a header containing email addresses.  Every occurrence
+// of the header is read, not only the first.
 func headToAddy(h mail.Header, header string) (addys []string) {
-	_, exists := h[header]
-	if !exists {
-		return
+	for _, v := range h[header] {
+		addyList, err := mail.ParseAddressList(v)
+		if err != nil {
+			log.Warnf("Failed to parse header: %s", header)
+			continue
+		}
+		for _, addy := range addyList {
+			addys = append(addys, addy.Address)
+		}
 	}
-	addyList, err := h.AddressList(header)
-	if err != nil {
-		log.Warnf("Failed to parse header: %s", header)
+	return
+}
+
+// exitHeaders lists the headers passed through from a pooled message to the
+// recipient, as canonical header keys.  All others are dropped, so headers
+// that identify the sender (User-Agent, X-Mailer, ...) or forge the origin
+// (Sender, Resent-*, ...) never reach the recipient.  Content-* headers are
+// allowed too, and operators can allow more with mail.allow_headers.  From,
+// Date and Message-Id are set by the remailer itself.
+var exitHeaders = map[string]bool{
+	"To":           true,
+	"Cc":           true,
+	"Subject":      true,
+	"Reply-To":     true,
+	"In-Reply-To":  true,
+	"References":   true,
+	"Newsgroups":   true,
+	"Followup-To":  true,
+	"Mime-Version": true,
+	"X-No-Archive": true,
+	"From":         true,
+	"Date":         true,
+	"Message-Id":   true,
+}
+
+// filterHeaders removes every header from h that isn't allowed to reach the
+// recipient.
+func filterHeaders(h mail.Header) {
+	extra := make(map[string]bool)
+	for _, k := range cfg.Mail.AllowHeaders {
+		extra[textproto.CanonicalMIMEHeaderKey(k)] = true
 	}
-	for _, addy := range addyList {
-		addys = append(addys, addy.Address)
+	for k := range h {
+		if exitHeaders[k] || extra[k] || strings.HasPrefix(k, "Content-") {
+			continue
+		}
+		log.Tracef("Dropping header: %s", k)
+		delete(h, k)
+	}
+}
+
+// uniqueStrings returns s without duplicates, keeping the first occurrence.
+func uniqueStrings(s []string) (u []string) {
+	seen := make(map[string]bool)
+	for _, v := range s {
+		if !seen[v] {
+			seen[v] = true
+			u = append(u, v)
+		}
 	}
 	return
 }
@@ -118,44 +171,29 @@ func mxLookup(email string) (relay string, err error) {
 // it.  If custom From headers are not allowed, it will be tweaked to conform
 // with the Remailer's configuration.
 func parseFrom(h mail.Header) []string {
+	// mail.Address.String quotes and encodes the display name, so a name
+	// can't pose as an address (e.g. "Bank <security@bank.example>").
+	defaultFrom := []string{(&mail.Address{
+		Name:    cfg.Mail.OutboundName,
+		Address: cfg.Mail.OutboundAddy,
+	}).String()}
 	from, err := h.AddressList("From")
-	if err != nil {
-		// The supplied address is invalid.  Use defaults instead.
-		return []string{fmt.Sprintf(
-			"%s <%s>",
-			cfg.Mail.OutboundName,
-			cfg.Mail.OutboundAddy,
-		)}
-	}
-	if len(from) == 0 {
-		// The address list is empty so return defaults
-		return []string{fmt.Sprintf(
-			"%s <%s>",
-			cfg.Mail.OutboundName,
-			cfg.Mail.OutboundAddy,
-		)}
+	if err != nil || len(from) == 0 {
+		// The supplied address is invalid or missing.  Use defaults instead.
+		return defaultFrom
 	}
 	if cfg.Mail.CustomFrom {
 		// Accept whatever was provided (it's already been validated by
 		// AddressList).
-		return []string{fmt.Sprintf(
-			"%s <%s>",
-			from[0].Name,
-			from[0].Address,
-		)}
+		return []string{from[0].String()}
 	}
 	if len(from[0].Name) == 0 {
-		return []string{fmt.Sprintf(
-			"%s <%s>",
-			cfg.Mail.OutboundName,
-			cfg.Mail.OutboundAddy,
-		)}
+		return defaultFrom
 	}
-	return []string{fmt.Sprintf(
-		"%s <%s>",
-		from[0].Name,
-		cfg.Mail.OutboundAddy,
-	)}
+	return []string{(&mail.Address{
+		Name:    from[0].Name,
+		Address: cfg.Mail.OutboundAddy,
+	}).String()}
 }
 
 // Read a file from the outbound pool and mail it
@@ -216,6 +254,10 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 	msg.Header["From"] = parseFrom(msg.Header)
 	sendTo := headToAddy(msg.Header, "To")
 	sendTo = append(sendTo, headToAddy(msg.Header, "Cc")...)
+	// Bcc recipients get the message, but the Bcc header itself is removed
+	// by filterHeaders below so other recipients don't see them.
+	sendTo = uniqueStrings(append(sendTo, headToAddy(msg.Header, "Bcc")...))
+	filterHeaders(msg.Header)
 	if len(sendTo) == 0 {
 		err = fmt.Errorf("%s: No email recipients found", filename)
 		// No point in repeatedly trying to resend a malformed file.

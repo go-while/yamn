@@ -13,7 +13,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | fixed (a4ad3ce) |
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | fixed (486f1e6) |
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
-| [Y-07](#y-07-exit-header-handling) | Medium | Exit header handling (Bcc leak, no filtering, From spoofing) | open |
+| [Y-07](#y-07-exit-header-handling) | Medium | Exit header handling (Bcc leak, no filtering, From spoofing) | fixed (54d7a84) |
 | [Y-08](#y-08-no-abuse-controls-at-the-exit) | Medium | No abuse controls at the exit | open |
 | [Y-09](#y-09-replay-window) | Medium | Replay window | open |
 | [Y-10](#y-10-malformed-files-crash-yamn) | Medium | Malformed stats / secring files crash yamn | fixed (40678e5) |
@@ -181,6 +181,12 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   - Only the first value of each header is kept (`Header.Get`).
 - **Fix:** Deliver to Bcc addresses and strip the header. Add a header
   allow-list or block-list. Use `mail.Address.String()` for From.
+- **Status:** fixed in `54d7a84` (branch `fix/07-exit-headers`). Allow-list
+  chosen: To, Cc, Subject, Reply-To, In-Reply-To, References, Newsgroups,
+  Followup-To, MIME-Version, X-No-Archive and Content-* pass (plus From,
+  Date, Message-Id set by the remailer); `mail.allow_headers` adds more.
+  Bcc recipients are delivered and the header removed; From names are
+  quoted; repeated headers keep every value. Tests: `exitheaders_test.go`.
 
 ### Y-08: No abuse controls at the exit
 
