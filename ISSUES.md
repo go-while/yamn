@@ -23,7 +23,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-14](#y-14-biased-shuffle) | Low | Biased shuffle | fixed (019b95c) |
 | [Y-15](#y-15-num_copies-config-setting-is-ignored) | Low | `num_copies` config setting is ignored | fixed (f1d760e) |
 | [Y-16](#y-16-packet-size-and-bounds-checks) | Low | Packet size and bounds checks | fixed (73de26b) |
-| [Y-17](#y-17-data-race-on-stats) | Low | Data race on `stats` | open |
+| [Y-17](#y-17-data-race-on-stats) | Low | Data race on `stats` | fixed (d94c550) |
 | [Y-18](#y-18-resource-leaks-and-small-cleanups) | Low | Resource leaks and small cleanups | open |
 | [Y-19](#y-19-remailer--replies-go-to-a-forgeable-address) | Low | `remailer-*` replies go to a forgeable address | open |
 | [Y-20](#y-20-client-does-not-strip-identifying-headers) | Low | Client does not strip identifying headers | open |
@@ -324,6 +324,8 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 - **Details:** The `stats` counters are written from the main loop and from the
   `serverPoolOutboundSend` goroutine without synchronisation.
 - **Fix:** Use a mutex or atomic counters.
+- **Status:** fixed in `d94c550` (branch `fix/17-stats-race`). Atomic counters;
+  the midnight reset swaps them to zero in one step. Tests: `stats_test.go`.
 
 ### Y-18: Resource leaks and small cleanups
 
