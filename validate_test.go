@@ -37,6 +37,14 @@ func setupChunkDb(t *testing.T) string {
 	t.Helper()
 	_, exit := setupRoundTrip(t)
 	pool := actAs(t, exit, true)
+	setupChunkDbOnly(t)
+	return pool
+}
+
+// setupChunkDbOnly opens an empty chunk DB as the ChunkDb global.  It is
+// restored when the test ends.
+func setupChunkDbOnly(t *testing.T) {
+	t.Helper()
 	oldChunkDb := ChunkDb
 	ChunkDb = OpenChunk(filepath.Join(t.TempDir(), "chunkdb"))
 	ChunkDb.SetExpire(60)
@@ -44,7 +52,6 @@ func setupChunkDb(t *testing.T) string {
 		ChunkDb.Close()
 		ChunkDb = oldChunkDb
 	})
-	return pool
 }
 
 func testFinal(chunkNum, numChunks int) *slotFinal {

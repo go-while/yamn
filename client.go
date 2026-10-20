@@ -117,6 +117,8 @@ func mixprep() {
 	var cnum int // Chunk number
 	numc := int(math.Ceil(float64(plainLen) / float64(maxFragLength)))
 	final.setNumChunks(numc)
+	// The exit is chosen once for the whole message: every chunk and copy
+	// must reach the same exit remailer for the chunks to be reassembled.
 	var exitnode string // Address of exit node (for multiple copy chains)
 	var gotExit bool    // Flag to indicate an exit node has been selected
 	var firstByte int   // First byte of message slice
@@ -124,6 +126,7 @@ func mixprep() {
 	// Fragments loop begins here
 	for cnum = 1; cnum <= numc; cnum++ {
 		final.setChunkNum(cnum)
+		final.newPacketID()
 		// First byte of message fragment
 		firstByte = (cnum - 1) * maxFragLength
 		lastByte = firstByte + maxFragLength
@@ -131,7 +134,6 @@ func mixprep() {
 		if lastByte > plainLen {
 			lastByte = plainLen
 		}
-		gotExit = false
 		// If no copies flag is specified, use the config file NUMCOPIES
 		if flag.Copies == 0 {
 			flag.Copies = cfg.Stats.Numcopies
