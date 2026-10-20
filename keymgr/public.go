@@ -170,6 +170,7 @@ func (p *Pubring) ImportStats() (err error) {
 	if err != nil {
 		return
 	}
+	defer f.Close()
 	scanner := bufio.NewScanner(f)
 	var remName string //Remailer name in stats
 	var remAddr string //Remailer address from xref
@@ -298,6 +299,7 @@ func Headers(filename string) (headers []string, err error) {
 	if err != nil {
 		return
 	}
+	defer f.Close()
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -315,6 +317,7 @@ func (p *Pubring) ImportPubring() (err error) {
 	if err != nil {
 		return
 	}
+	defer f.Close()
 	scanner := bufio.NewScanner(f)
 	var elements []string
 	var num_elements int

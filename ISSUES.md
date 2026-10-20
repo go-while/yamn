@@ -24,7 +24,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-15](#y-15-num_copies-config-setting-is-ignored) | Low | `num_copies` config setting is ignored | fixed (f1d760e) |
 | [Y-16](#y-16-packet-size-and-bounds-checks) | Low | Packet size and bounds checks | fixed (73de26b) |
 | [Y-17](#y-17-data-race-on-stats) | Low | Data race on `stats` | fixed (d94c550) |
-| [Y-18](#y-18-resource-leaks-and-small-cleanups) | Low | Resource leaks and small cleanups | open |
+| [Y-18](#y-18-resource-leaks-and-small-cleanups) | Low | Resource leaks and small cleanups | fixed (205d80f) |
 | [Y-19](#y-19-remailer--replies-go-to-a-forgeable-address) | Low | `remailer-*` replies go to a forgeable address | open |
 | [Y-20](#y-20-client-does-not-strip-identifying-headers) | Low | Client does not strip identifying headers | open |
 
@@ -329,12 +329,16 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 
 ### Y-18: Resource leaks and small cleanups
 
-- `ImportPubring`, `ImportStats` and `Headers` (`keymgr/public.go`) never close
-  their files.
+- ~~`ImportPubring`, `ImportStats` and `Headers` (`keymgr/public.go`) never
+  close their files.~~ Fixed in `205d80f`.
 - ~~`smtpRelay` (`mail.go`) leaves the connection open on error paths.~~
   Fixed in `f894bf0` (Y-06).
-- `Chunk.Expire` (`chunker.go`) shifts the items with `copy` without
-  shortening the slice, so the last chunk file is processed twice.
+- ~~`Chunk.Expire` (`chunker.go`) shifts the items with `copy` without
+  shortening the slice, so the last chunk file is processed twice.~~ Fixed in
+  `205d80f`, which also releases its iterator and stops double-deleting records
+  with a corrupt timestamp.
+- **Status:** fixed (branch `fix/18-resource-leaks`). Tests:
+  `keymgr/leak_test.go`, `chunkexpire_test.go`.
 
 ### Y-19: `remailer-*` replies go to a forgeable address
 

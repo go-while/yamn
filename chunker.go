@@ -53,11 +53,16 @@ func (chunk *Chunk) Get(messageID []byte, numChunks int) (items []string) {
 			panic(err)
 		}
 	} else {
-		// Ignore the first item in the DB, it's the date field and
-		// only used internally.
-		items = strings.Split(string(content), ",")[1:]
+		_, items = chunkItems(content)
 	}
 	return
+}
+
+// chunkItems splits a chunk DB record into its expiry date stamp (the first
+// field, only used internally) and the chunk filenames.
+func chunkItems(record []byte) (stamp string, items []string) {
+	fields := strings.Split(string(record), ",")
+	return fields[0], fields[1:]
 }
 
 // Insert writes an entry to the DB
@@ -192,18 +197,18 @@ func (chunk *Chunk) DeleteItems(items []string) (deleted, failed int) {
 func (chunk *Chunk) Expire() (retained, deleted int) {
 	now := time.Now()
 	iter := chunk.db.NewIterator(nil, nil)
+	defer iter.Release()
 	for iter.Next() {
 		key := iter.Key()
-		items := strings.Split(string(iter.Value()), ",")
-		stamp := items[0]
-		// Now we have the timestamp, strip it from the slice
-		copy(items, items[1:])
+		stamp, items := chunkItems(iter.Value())
 		expire, err := time.Parse("20060102", stamp)
 		if err != nil {
 			log.Warnf("Could not parse timestamp: %s", err)
 			// If the timestamp is invalid, delete the record
 			chunk.DeleteItems(items)
 			chunk.Delete(key)
+			deleted++
+			continue
 		}
 		if expire.Before(now) {
 			chunk.DeleteItems(items)
