@@ -320,7 +320,7 @@ func (f *Flags) ParseConfig() (*Config, error) {
 			return nil, err
 		}
 		// Unmarshal the content of the YAML config file over the existing struct instance
-		err = yaml.Unmarshal(yamlBytes, &c)
+		err = yaml.Unmarshal(yamlBytes, c)
 		if err != nil {
 			return nil, err
 		}

@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -76,5 +77,27 @@ files:
 	// These settings inherit defaults from flags
 	if c.Files.IDlog != "/fakedir/idlog" {
 		t.Errorf("Expected c.Files.IDlog to default to \"/fakedir/idlog\" but got \"%s\".", c.Files.IDlog)
+	}
+}
+
+// TestEmptyConfig checks that a config file holding an empty YAML document
+// keeps the defaults instead of returning a nil Config.
+func TestEmptyConfig(t *testing.T) {
+	for _, content := range []string{"", "---\n", "# comment only\n"} {
+		cfgFile := filepath.Join(t.TempDir(), "yamn.yml")
+		if err := os.WriteFile(cfgFile, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		f := &Flags{Config: cfgFile, Dir: "/fakedir"}
+		c, err := f.ParseConfig()
+		if err != nil {
+			t.Fatalf("ParseConfig(%q) returned: %v", content, err)
+		}
+		if c == nil {
+			t.Fatalf("ParseConfig(%q) returned a nil Config", content)
+		}
+		if c.General.Loglevel != "warn" {
+			t.Errorf("ParseConfig(%q): expected default loglevel \"warn\", got %q", content, c.General.Loglevel)
+		}
 	}
 }
