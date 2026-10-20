@@ -356,6 +356,12 @@ func checkNextHop(addr string) error {
 	return nil
 }
 
+// errDuplicatePacket is returned for a packet whose ID was already seen.
+// That's usually another copy of the same message (clients send 2 copies by
+// default and share the packet ID so it's delivered once); it can't be told
+// apart from a replay, and both are simply dropped.
+var errDuplicatePacket = errors.New("packet ID collision")
+
 // replayLogDays returns how many days packet IDs are kept in the ID log.  A
 // packet is accepted until it's max_age days old, so its ID must be kept at
 // least max_age+1 days (it may arrive at the very start of its stamp day).
@@ -449,7 +455,7 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 	// tampered or expired copy can't record the ID and get the genuine
 	// packet rejected as a replay.
 	if !IDDb.Unique(slotData.getPacketID()) {
-		err = errors.New("packet ID collision")
+		err = errDuplicatePacket
 		return
 	}
 	if slotData.getPacketType() == 0 {

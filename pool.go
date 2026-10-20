@@ -222,9 +222,7 @@ func processMail(secret *keymgr.Secring) (err error) {
 			continue
 		}
 		err = decodeSafely(msg, secret)
-		if err != nil {
-			log.Info(err)
-		}
+		logDecodeError(err, log.Info)
 		err = dir.Purge(key)
 		if err != nil {
 			log.Warnf("Cannot delete mail: %s", err)
@@ -286,6 +284,20 @@ func expireRejected() {
 	}
 }
 
+// logDecodeError logs an error from decoding a received message with logf.
+// A duplicate packet is normal (see errDuplicatePacket), so it's only logged
+// at Trace level.  Based on lampeh/yamn 0f2038d "duplicate messsages are not
+// worth a warning".
+func logDecodeError(err error, logf func(...interface{})) {
+	switch {
+	case err == nil:
+	case errors.Is(err, errDuplicatePacket):
+		log.Trace("Discarding duplicate packet: another copy was already processed")
+	default:
+		logf(err)
+	}
+}
+
 // processInpool is similar to processMail but reads the Inbound Pool
 func processInpool(prefix string, secret *keymgr.Secring) {
 	poolFiles, err := readDir(cfg.Files.Pooldir, prefix)
@@ -304,9 +316,7 @@ func processInpool(prefix string, secret *keymgr.Secring) {
 			continue
 		}
 		err = decodeSafely(msg, secret)
-		if err != nil {
-			log.Warn(err)
-		}
+		logDecodeError(err, log.Warn)
 		poolDelete(f)
 		processed++
 	}
