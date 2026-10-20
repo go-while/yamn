@@ -83,7 +83,7 @@ func emailPoolFile(filename string) {
 			poolDelete(filename)
 		}
 	} else {
-		stats.outMail++
+		stats.outMail.Add(1)
 		poolDelete(filename)
 	}
 }
@@ -172,7 +172,7 @@ func processMail(secret *keymgr.Secring) (err error) {
 		cfg.Files.Maildir,
 	)
 	// Increment inbound Email counter
-	stats.inMail += newMsgs
+	stats.inMail.Add(int64(newMsgs))
 	// Fetch headers for each Maildir key
 	var head mail.Header
 	for _, key := range keys {
@@ -188,7 +188,7 @@ func processMail(secret *keymgr.Secring) (err error) {
 			err = remailerFoo(subject, head.Get("From"))
 			if err == nil {
 				// Increments stats counter
-				stats.inRemFoo++
+				stats.inRemFoo.Add(1)
 			} else {
 				log.Info(err)
 			}

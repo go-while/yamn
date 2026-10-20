@@ -120,8 +120,7 @@ func loopServer() (err error) {
 			// Delete old rejected mail
 			expireRejected()
 			// Report daily throughput and reset to zeros
-			stats.report()
-			stats.reset()
+			stats.reportAndReset()
 			// Reset dayOfMonth to today
 			dayOfMonth = time.Now().Day()
 		}
@@ -477,7 +476,7 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 				log.Warnf("Failed to write to pool: %s", err)
 				return
 			}
-			stats.outLoop++
+			stats.outLoop.Add(1)
 		} else {
 			if err = checkNextHop(inter.getNextHop()); err != nil {
 				err = fmt.Errorf("refusing to forward: %w", err)
@@ -486,11 +485,11 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 			if err = writeMessageToPool(inter.getNextHop(), d.getPayload()); err != nil {
 				return
 			}
-			stats.outYamn++
+			stats.outYamn.Add(1)
 			// Decide if we want to inject a dummy
 			if !flag.NoDummy && crandom.Dice() < 55 {
 				dummy()
-				stats.outDummy++
+				stats.outDummy.Add(1)
 			}
 		} // End of local or remote delivery
 	} else if slotData.getPacketType() == 1 {
@@ -502,7 +501,7 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 		}
 		if final.getDeliveryMethod() == 255 {
 			log.Trace("Discarding dummy message")
-			stats.inDummy++
+			stats.inDummy.Add(1)
 			return
 		}
 		// Decrypt the payload body
@@ -517,7 +516,7 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 		// Test delivery methods
 		switch final.getDeliveryMethod() {
 		case 0:
-			stats.inYamn++
+			stats.inYamn.Add(1)
 			if !cfg.Remailer.Exit {
 				if final.numChunks == 1 {
 					// Need to randhop as we're not an exit
@@ -562,7 +561,7 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 		}
 		// If this is a single chunk message, pool it and get out.
 		writePlainToPool(plain, "m")
-		stats.outPlain++
+		stats.outPlain.Add(1)
 		return
 	}
 	// Every chunk but the last is maxFragLength bytes, so a message whose
@@ -633,7 +632,7 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 		// Now the message is assembled into the Pool, the DB record
 		// can be deleted
 		ChunkDb.Delete(final.getMessageID())
-		stats.outPlain++
+		stats.outPlain.Add(1)
 	} else {
 		// Write the updated chunk status to
 		// the DB
@@ -669,7 +668,7 @@ func randhop(plainMsg []byte) {
 		log.Warn(err)
 		return
 	}
-	stats.outRandhop++
+	stats.outRandhop.Add(1)
 }
 
 // remailerFoo responds to requests for remailer-* info
