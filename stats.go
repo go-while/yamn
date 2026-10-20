@@ -2,58 +2,71 @@ package main
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"github.com/Masterminds/log-go"
 )
 
+// statistics holds throughput counters.  They're updated from both the main
+// server loop and the outbound pool goroutine, so they're atomic.
 type statistics struct {
-	inDummy    int
-	inMail     int
-	inRemFoo   int
-	inYamn     int
-	outDummy   int
-	outMail    int
-	outYamn    int
-	outLoop    int
-	outRandhop int
-	outPlain   int
+	inDummy    atomic.Int64
+	inMail     atomic.Int64
+	inRemFoo   atomic.Int64
+	inYamn     atomic.Int64
+	outDummy   atomic.Int64
+	outMail    atomic.Int64
+	outYamn    atomic.Int64
+	outLoop    atomic.Int64
+	outRandhop atomic.Int64
+	outPlain   atomic.Int64
 }
 
-func (s *statistics) reset() {
-	s.inDummy = 0
-	s.inMail = 0
-	s.inYamn = 0
-	s.inRemFoo = 0
-	s.outDummy = 0
-	s.outMail = 0
-	s.outYamn = 0
-	s.outLoop = 0
-	s.outRandhop = 0
-	s.outPlain = 0
-	log.Info("Daily stats reset")
+// counters returns the counters in report order.
+func (s *statistics) counters() []*atomic.Int64 {
+	return []*atomic.Int64{
+		&s.inMail, &s.inRemFoo, &s.inYamn, &s.inDummy,
+		&s.outMail, &s.outYamn, &s.outLoop, &s.outRandhop, &s.outPlain, &s.outDummy,
+	}
 }
 
-func (s *statistics) report() {
+// log writes one report from values given in counters() order.
+func (s *statistics) log(v []int64) {
 	log.Infof(
 		"MailIn=%d, RemFoo=%d, YamnIn=%d, DummyIn=%d",
-		s.inMail,
-		s.inRemFoo,
-		s.inYamn,
-		s.inDummy,
+		v[0], v[1], v[2], v[3],
 	)
 	line1 := fmt.Sprintf(
 		"MailOut=%d, YamnOut=%d, YamnLoop=%d, Randhop=%d, ",
-		s.outMail,
-		s.outYamn,
-		s.outLoop,
-		s.outRandhop,
+		v[4], v[5], v[6], v[7],
 	)
 	line2 := fmt.Sprintf(
 		"FinalOut=%d, DummyOut=%d",
-		s.outPlain,
-		s.outDummy,
+		v[8], v[9],
 	)
 	log.Infof(line1 + line2)
+}
+
+// report logs the current counters.
+func (s *statistics) report() {
+	var v []int64
+	for _, c := range s.counters() {
+		v = append(v, c.Load())
+	}
+	s.log(v)
+}
+
+// reportAndReset logs the counters and sets them to zero, returning the
+// values it reported in counters() order.  Each counter is read and zeroed
+// in one step, so increments made meanwhile aren't lost.
+func (s *statistics) reportAndReset() []int64 {
+	var v []int64
+	for _, c := range s.counters() {
+		v = append(v, c.Swap(0))
+	}
+	s.log(v)
+	log.Info("Daily stats reset")
+	return v
 }
 
 var stats = new(statistics)
