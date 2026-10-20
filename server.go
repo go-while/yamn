@@ -57,6 +57,8 @@ func loopServer() (err error) {
 	idLogExpire()
 	// Clean the chunk DB
 	chunkClean()
+	// Delete old rejected mail
+	expireRejected()
 	// Complain about poor configs
 	nagOperator()
 	// Run a key purge
@@ -115,6 +117,8 @@ func loopServer() (err error) {
 			idLogExpire()
 			// Expire entries in the chunker
 			chunkClean()
+			// Delete old rejected mail
+			expireRejected()
 			// Report daily throughput and reset to zeros
 			stats.report()
 			stats.reset()
