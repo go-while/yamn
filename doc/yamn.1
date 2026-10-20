@@ -54,7 +54,11 @@ to continuously process, otherwise only a single iteration of read, process,
 send  will be performed.
 .TP
 .B "-R, --read-mail"
-Read the message from the STDIN pipe instead of from a file or Maildir.
+Read an incoming mail from STDIN and store it in the remailer's Maildir, as an
+MTA would deliver it.  STDIN may also hold an mbox of several mails, such as
+the output of
+.BR --stdout ,
+which is split into one Maildir message per mail.
 .TP
 .B "-s, --subject=\fIsubject"
 Specify a Subject header for the message.  If this isn't defined, the Subject
@@ -65,7 +69,11 @@ Flush the outbound pool.  Useful for client mode and remailer testing but
 should not be used on an in-production remailer.
 .TP
 .B "--stdout"
-Pipe the output message to STDOUT instead of storing it in the Pool.
+Write the encrypted mails to STDOUT instead of storing them in the Pool, so
+they can be sent some other way.  The output is an mbox: one mail per copy and
+chunk, each addressed to its first remailer.  No dummy message is sent.  A
+remailer can read this output with
+.BR -R .
 .TP
 .B "-t, --to=\fIuser@host"
 Specify a recipient for the message.  If this option isn't defined, the recipient

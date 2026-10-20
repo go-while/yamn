@@ -193,7 +193,7 @@ func ParseFlags() *Flags {
 	flag.BoolVar(&f.Stdin, "read-mail", false, "Read a message from stdin")
 	flag.BoolVar(&f.Stdin, "R", false, "Read a message from stdin")
 	// Write to STDOUT
-	flag.BoolVar(&f.Stdout, "stdout", false, "Write message to stdout")
+	flag.BoolVar(&f.Stdout, "stdout", false, "Write the encrypted mails to stdout (mbox) instead of the pool")
 	// Inject dummy
 	flag.BoolVar(&f.Dummy, "dummy", false, "Inject a dummy message")
 	flag.BoolVar(&f.Dummy, "d", false, "Inject a dummy message")
