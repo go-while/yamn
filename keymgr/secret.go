@@ -448,8 +448,8 @@ func (s *Secring) ImportSecring() (err error) {
 			}
 		case 1:
 			// Valid-from date
-			if line[:9] == "Created: " {
-				valid, err = time.Parse(date_format, line[9:])
+			if date, ok := strings.CutPrefix(line, "Created: "); ok {
+				valid, err = time.Parse(date_format, date)
 				if err != nil {
 					fmt.Fprintln(
 						os.Stderr,
@@ -479,8 +479,8 @@ func (s *Secring) ImportSecring() (err error) {
 			key_phase = 2
 		case 2:
 			// Expire date
-			if line[:9] == "Expires: " {
-				expire, err = time.Parse(date_format, line[9:])
+			if date, ok := strings.CutPrefix(line, "Expires: "); ok {
+				expire, err = time.Parse(date_format, date)
 				if err != nil {
 					fmt.Fprintln(
 						os.Stderr,

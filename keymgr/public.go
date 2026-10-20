@@ -228,6 +228,10 @@ func (p *Pubring) ImportStats() (err error) {
 			}
 			// Element 2 is Latency in the format (hrs:mins)
 			lat = strings.Split(elements[2], ":")
+			if len(lat) != 2 {
+				fmt.Fprintf(os.Stderr, "%s: Invalid latency\n", remName)
+				continue
+			}
 			if lat[0] == "" {
 				lathrs = 0
 			} else {
