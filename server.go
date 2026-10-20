@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -328,6 +329,19 @@ func createDirs() {
 	}
 }
 
+// decodeSafely runs decodeMsg and turns a panic into an error.  Received
+// messages come from untrusted senders, so a bug triggered by one message
+// must drop that message instead of stopping the remailer.
+func decodeSafely(rawMsg []byte, secret *keymgr.Secring) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("Recovered from panic while decoding message: %v\n%s", r, debug.Stack())
+			err = fmt.Errorf("message decode panicked: %v", r)
+		}
+	}()
+	return decodeMsg(rawMsg, secret)
+}
+
 // decodeMsg is the actual YAMN message decoder.  It's output is always a
 // pooled file, either in the Inbound or Outbound queue.
 func decodeMsg(rawMsg []byte, secret *keymgr.Secring) (err error) {
@@ -426,6 +440,10 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 	} else if slotData.getPacketType() == 1 {
 		// Decode Exit
 		final := decodeFinal(slotData.packetInfo)
+		if err = final.validate(); err != nil {
+			err = fmt.Errorf("invalid exit header: %w", err)
+			return
+		}
 		if final.getDeliveryMethod() == 255 {
 			log.Trace("Discarding dummy message")
 			stats.inDummy++
@@ -459,7 +477,7 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 				}
 				return
 			}
-			smtpMethod(plain, final)
+			err = smtpMethod(plain, final)
 		default:
 			log.Warnf(
 				"Unsupported Delivery Method: %d",
@@ -478,12 +496,24 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 }
 
 // smtpMethod is concerned with final-hop processing.
-func smtpMethod(plain []byte, final *slotFinal) {
-	var err error
+func smtpMethod(plain []byte, final *slotFinal) (err error) {
 	if final.getNumChunks() == 1 {
 		// If this is a single chunk message, pool it and get out.
 		writePlainToPool(plain, "m")
 		stats.outPlain++
+		return
+	}
+	// Fetch the chunks info from the DB for the given message ID
+	chunks := ChunkDb.Get(final.getMessageID(), final.getNumChunks())
+	// A stored record from an earlier chunk must agree with this header,
+	// otherwise the chunk number below could index outside it.
+	if len(chunks) != final.getNumChunks() {
+		err = fmt.Errorf(
+			"chunk count mismatch for MsgID %x: header says %d, stored record has %d",
+			final.getMessageID(),
+			final.getNumChunks(),
+			len(chunks),
+		)
 		return
 	}
 	// We're an exit and this is a multi-chunk message
@@ -496,8 +526,6 @@ func smtpMethod(plain []byte, final *slotFinal) {
 		final.getNumChunks(),
 		chunkFilename,
 	)
-	// Fetch the chunks info from the DB for the given message ID
-	chunks := ChunkDb.Get(final.getMessageID(), final.getNumChunks())
 	// This saves losts of -1's as slices start at 0 and chunks at 1
 	cslot := final.getChunkNum() - 1
 	// Test that the slot for this chunk is empty
@@ -536,6 +564,7 @@ func smtpMethod(plain []byte, final *slotFinal) {
 		// the DB
 		ChunkDb.Insert(final.getMessageID(), chunks)
 	}
+	return
 }
 
 // randhop is a simplified client function that does single-hop encodings

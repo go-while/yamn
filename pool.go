@@ -223,7 +223,7 @@ func processMail(secret *keymgr.Secring) (err error) {
 			log.Warn("Dearmor returned zero bytes")
 			continue
 		}
-		err = decodeMsg(msg, secret)
+		err = decodeSafely(msg, secret)
 		if err != nil {
 			log.Info(err)
 		}
@@ -252,7 +252,7 @@ func processInpool(prefix string, secret *keymgr.Secring) {
 			log.Warnf("Failed to read %s from pool: %s", f, err)
 			continue
 		}
-		err = decodeMsg(msg, secret)
+		err = decodeSafely(msg, secret)
 		if err != nil {
 			log.Warn(err)
 		}

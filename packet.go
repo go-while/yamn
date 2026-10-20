@@ -476,6 +476,21 @@ func (f *slotFinal) encode() []byte {
 	return buf.Bytes()
 }
 
+// validate checks the fields of a decoded Final header that are later used as
+// lengths and indexes.  They are set by the sender, so they cannot be trusted.
+func (f *slotFinal) validate() error {
+	if f.bodyBytes < 0 || f.bodyBytes > bodyBytes {
+		return fmt.Errorf("body length (%d) outside range 0-%d", f.bodyBytes, bodyBytes)
+	}
+	if f.numChunks == 0 {
+		return errors.New("number of chunks is zero")
+	}
+	if f.chunkNum == 0 || f.chunkNum > f.numChunks {
+		return fmt.Errorf("chunk number (%d) outside range 1-%d", f.chunkNum, f.numChunks)
+	}
+	return nil
+}
+
 func decodeFinal(b []byte) *slotFinal {
 	err := lenCheck(len(b), encDataBytes)
 	if err != nil {
