@@ -8,13 +8,13 @@ import (
 
 func TestFlags(t *testing.T) {
 	expectedClient := false
-	expectedCopies := 0
+	expectedCopies := 2 // Default value from flag parsing
 	f := ParseFlags()
 	if f.Client != expectedClient {
 		t.Errorf("Expected Client to contain \"%v\" but got \"%v\".", expectedClient, f.Client)
 	}
 	if f.Copies != expectedCopies {
-		t.Errorf("Expected Client to contain \"%v\" but got \"%v\".", expectedCopies, f.Copies)
+		t.Errorf("Expected Copies to contain \"%v\" but got \"%v\".", expectedCopies, f.Copies)
 	}
 }
 
