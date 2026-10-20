@@ -179,8 +179,9 @@ func ParseFlags() *Flags {
 	flag.StringVar(&f.Subject, "subject", "", "Subject header")
 	flag.StringVar(&f.Subject, "s", "", "Subject header")
 	// Number of copies
-	flag.IntVar(&f.Copies, "copies", 2, "Number of copies")
-	flag.IntVar(&f.Copies, "c", 2, "Number of copies")
+	// 0 means "not given": the config's stats.num_copies applies
+	flag.IntVar(&f.Copies, "copies", 0, "Number of copies (default: stats.num_copies)")
+	flag.IntVar(&f.Copies, "c", 0, "Number of copies (default: stats.num_copies)")
 	// Config file
 	flag.StringVar(&f.Config, "config", "", "Config file")
 	// Read STDIN
@@ -309,7 +310,7 @@ func (f *Flags) newConfig() *Config {
 	c.Stats.Minlat = 2
 	c.Stats.Maxlat = 60
 	c.Stats.Chain = "*,*,*"
-	c.Stats.Numcopies = 1
+	c.Stats.Numcopies = 2
 	c.Stats.Distance = 2
 	c.Stats.StaleHrs = 24
 	c.Stats.UseExpired = false

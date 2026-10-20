@@ -9,7 +9,7 @@ import (
 
 func TestFlags(t *testing.T) {
 	expectedClient := false
-	expectedCopies := 2 // Default value from flag parsing
+	expectedCopies := 0 // Not given: the config's num_copies applies
 	// ParseFlags registers on the global FlagSet and parses os.Args.  Give
 	// it a fresh FlagSet and no arguments so the test can run repeatedly.
 	oldCommandLine, oldArgs := flag.CommandLine, os.Args
@@ -183,5 +183,18 @@ func TestIgnoredLocalConfig(t *testing.T) {
 	}
 	if _, ok := IgnoredLocalConfig(local); ok {
 		t.Error("./yamn.yml in use (absolute path): no warning")
+	}
+}
+
+// TestDefaultCopies checks that --copies is "not given" by default and the
+// config's num_copies defaults to 2.
+func TestDefaultCopies(t *testing.T) {
+	isolateConfigLookup(t)
+	c, err := (&Flags{}).ParseConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Stats.Numcopies != 2 {
+		t.Errorf("Default num_copies: got %d, want 2", c.Stats.Numcopies)
 	}
 }

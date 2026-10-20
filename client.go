@@ -114,6 +114,7 @@ func mixprep() {
 	if len(inChain) == 0 {
 		log.Fatal("empty input chain")
 	}
+	copies := numCopies()
 	var cnum int // Chunk number
 	numc := int(math.Ceil(float64(plainLen) / float64(maxFragLength)))
 	final.setNumChunks(numc)
@@ -134,16 +135,8 @@ func mixprep() {
 		if lastByte > plainLen {
 			lastByte = plainLen
 		}
-		// If no copies flag is specified, use the config file NUMCOPIES
-		if flag.Copies == 0 {
-			flag.Copies = cfg.Stats.Numcopies
-		}
-		if flag.Copies > maxCopies {
-			// Limit copies to a maximum of 10
-			flag.Copies = maxCopies
-		}
 		// Copies loop begins here
-		for n := 0; n < flag.Copies; n++ {
+		for n := 0; n < copies; n++ {
 			if gotExit {
 				// Set the last node in the chain to the
 				// previously select exitnode
@@ -187,6 +180,17 @@ func mixprep() {
 	if !flag.NoDummy && Pubring.HaveStats() && crandom.Dice() < 80 {
 		dummy()
 	}
+}
+
+// numCopies returns how many copies of each chunk to send: the --copies flag
+// if it was given, otherwise stats.num_copies from the config, limited to
+// 1-maxCopies.
+func numCopies() int {
+	copies := flag.Copies
+	if copies <= 0 {
+		copies = cfg.Stats.Numcopies
+	}
+	return max(1, min(copies, maxCopies))
 }
 
 // encodeMsg encodes a plaintext fragment into mixmaster format.
