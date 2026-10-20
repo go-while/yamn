@@ -673,12 +673,13 @@ func (m *encMessage) setChainLength(chainLength int) {
 // its length in Bytes
 func (m *encMessage) setPlainText(plain []byte) (plainLength int) {
 	plainLength = len(plain)
-	if m.plainLength > bodyBytes {
+	if plainLength > bodyBytes {
 		err := fmt.Errorf("payload (%d) exceeds max length (%d)", plainLength, bodyBytes)
 		panic(err)
 	}
 	// Insert the plain bytes after the headers
 	copy(m.payload[headersBytes:], plain)
+	m.plainLength = plainLength
 	m.gotPayload = true
 	return
 }
@@ -731,7 +732,7 @@ func (m *encMessage) getPartialIV(intermediateHop int) (ivPartial []byte) {
 		function cannot be used directly to encrypt anything.  It needs
 		a 4 byte sequence number added to it in order to be usable.
 	*/
-	if intermediateHop > m.intermediateHops {
+	if intermediateHop >= m.intermediateHops {
 		err := fmt.Errorf(
 			"requested IV for hop (%d) exceeds array length (%d)",
 			intermediateHop,
