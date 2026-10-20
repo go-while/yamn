@@ -54,6 +54,8 @@ type Config struct {
 		OutboundName string `yaml:"outbound_name"`
 		OutboundAddy string `yaml:"outbound_addy"`
 		CustomFrom   bool   `yaml:"custom_from"`
+		// Extra headers an exit passes through, besides the built-in list
+		AllowHeaders []string `yaml:"allow_headers"`
 	} `yaml:"mail"`
 	Stats struct {
 		Minlat     int     `yaml:"minlat"`

@@ -84,6 +84,8 @@ type fakeSMTP struct {
 	usedTLS   bool
 	usedAuth  bool
 	delivered bool
+	rcpts     []string // RCPT TO addresses
+	data      []byte   // message received with DATA
 }
 
 func newFakeSMTP(t *testing.T, cert *tls.Certificate, offerAuth bool, stall string) *fakeSMTP {
@@ -166,14 +168,22 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 		case strings.HasPrefix(cmd, "MAIL") && s.stall == "MAIL":
 			s.waitForHangup(conn)
 			return
-		case strings.HasPrefix(cmd, "MAIL"), strings.HasPrefix(cmd, "RCPT"):
+		case strings.HasPrefix(cmd, "RCPT"):
+			addr := strings.Trim(strings.TrimSpace(line[len("RCPT TO:"):]), "<>")
+			s.mu.Lock()
+			s.rcpts = append(s.rcpts, addr)
+			s.mu.Unlock()
+			tp.PrintfLine("250 OK")
+		case strings.HasPrefix(cmd, "MAIL"):
 			tp.PrintfLine("250 OK")
 		case cmd == "DATA":
 			tp.PrintfLine("354 Go ahead")
-			if _, err := tp.ReadDotBytes(); err != nil {
+			data, err := tp.ReadDotBytes()
+			if err != nil {
 				return
 			}
 			s.mu.Lock()
+			s.data = data
 			s.delivered = true
 			s.mu.Unlock()
 			tp.PrintfLine("250 Queued")
