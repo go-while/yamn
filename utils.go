@@ -77,7 +77,9 @@ func messageID() (datestr string) {
 	dateComponent := time.Now().Format("20060102.150405")
 	randomComponent := hex.EncodeToString(crandom.Randbytes(4))
 	var domainComponent string
-	if strings.Contains(cfg.Remailer.Address, "@") {
+	if validMessageDomain(cfg.Mail.MessageDomain) {
+		domainComponent = cfg.Mail.MessageDomain
+	} else if strings.Contains(cfg.Remailer.Address, "@") {
 		domainComponent = strings.SplitN(
 			cfg.Remailer.Address, "@", 2,
 		)[1]
@@ -91,6 +93,12 @@ func messageID() (datestr string) {
 		domainComponent,
 	)
 	return
+}
+
+// validMessageDomain reports whether d can be used as the domain part of a
+// Message-ID: not empty and without characters that would break the header.
+func validMessageDomain(d string) bool {
+	return d != "" && !strings.ContainsAny(d, " \t\r\n<>@\"(),;:[]\\")
 }
 
 // lenCheck verifies that a slice is of a specified length

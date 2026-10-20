@@ -57,6 +57,9 @@ type Config struct {
 		OutboundName string `yaml:"outbound_name"`
 		OutboundAddy string `yaml:"outbound_addy"`
 		CustomFrom   bool   `yaml:"custom_from"`
+		// Domain part of the Message-ID on mail sent by the exit; empty
+		// means the domain of remailer.address.
+		MessageDomain string `yaml:"message_domain"`
 		// Extra headers an exit passes through, besides the built-in list
 		AllowHeaders []string `yaml:"allow_headers"`
 	} `yaml:"mail"`
@@ -309,6 +312,7 @@ func (f *Flags) newConfig() *Config {
 	c.Mail.OutboundName = "Anonymous Remailer"
 	c.Mail.OutboundAddy = "remailer@domain.invalid"
 	c.Mail.CustomFrom = false
+	c.Mail.MessageDomain = ""
 	c.Stats.Minrel = 98.0
 	c.Stats.Relfinal = 99.0
 	c.Stats.Minlat = 2
