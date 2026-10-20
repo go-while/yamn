@@ -9,7 +9,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 |---|---|---|---|
 | [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | fixed (4f370cc) |
 | [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | fixed (6c0fb7e) |
-| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | open |
+| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c) |
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | fixed (a4ad3ce) |
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | open |
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
@@ -98,6 +98,13 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 - **Fix:** At minimum, reject keys where `keyid != makeKeyID(PK)`. Longer
   term: signed pubrings, or key pinning with a warning when a known
   remailer's key changes unexpectedly.
+- **Status:** in progress.
+  - Done in `fa8b18c` (branch `fix/03-pubring-keyid`): `ImportPubring` ignores
+    keys whose keyid is not the hash of the public key. All six keys in the
+    mixmin.net pubring (2026-10-20) pass.
+  - Open: this doesn't stop whoever controls the pubring from publishing a
+    new, self-consistent key. Signed pubrings or key pinning to be discussed
+    after the other fixes.
 
 ### Y-04: Next hop not validated; header injection at middle remailers
 
