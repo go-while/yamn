@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -126,7 +127,11 @@ const (
 )
 
 // httpGet retrieves url and stores it in filename
-func httpGet(url, filename string) (err error) {
+//
+// If validate is not nil, the downloaded content must pass it.  The file is
+// written to a temporary file next to filename and renamed over it, so a
+// failed download or write never replaces a working file.
+func httpGet(url, filename string, validate func([]byte) error) (err error) {
 	client := &http.Client{Timeout: httpTimeout}
 	res, err := client.Get(url)
 	if err != nil {
@@ -145,11 +150,37 @@ func httpGet(url, filename string) (err error) {
 	if len(content) > maxDownloadBytes {
 		return fmt.Errorf("%s: exceeds %d byte download limit", url, maxDownloadBytes)
 	}
-	err = ioutil.WriteFile(filename, content, 0644)
+	if validate != nil {
+		if err = validate(content); err != nil {
+			return fmt.Errorf("%s: downloaded file rejected: %w", url, err)
+		}
+	}
+	return writeFileAtomic(filename, content, 0644)
+}
+
+// writeFileAtomic writes content to a temporary file in filename's directory
+// and renames it over filename, so readers never see a partial file.
+func writeFileAtomic(filename string, content []byte, perm os.FileMode) (err error) {
+	tmp, err := os.CreateTemp(filepath.Dir(filename), filepath.Base(filename)+".tmp*")
 	if err != nil {
 		return
 	}
-	return
+	defer func() {
+		if err != nil {
+			os.Remove(tmp.Name())
+		}
+	}()
+	if _, err = tmp.Write(content); err != nil {
+		tmp.Close()
+		return
+	}
+	if err = tmp.Close(); err != nil {
+		return
+	}
+	if err = os.Chmod(tmp.Name(), perm); err != nil {
+		return
+	}
+	return os.Rename(tmp.Name(), filename)
 }
 
 // isPath returns True if a given file or directory exists
