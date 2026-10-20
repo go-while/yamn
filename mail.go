@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/mail"
@@ -93,7 +94,7 @@ func mxLookup(email string) (relay string, err error) {
 				continue
 			}
 		}
-		relay = mx.Host
+		relay = strings.TrimSuffix(mx.Host, ".")
 		break
 	}
 	if relay == "" {
@@ -297,14 +298,41 @@ func execSend(payload []byte, execCmd string) (err error) {
 	return
 }
 
+// isLoopbackHost reports whether host is the local machine, where mail
+// travels without leaving the host and plaintext SMTP is acceptable.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// smtpRootCAs overrides the system certificate pool when verifying SMTP
+// servers.  It is nil (use the system pool) except in tests.
+var smtpRootCAs *x509.CertPool
+
+// smtpDial opens the TCP connection to an SMTP server.  Tests replace it.
+var smtpDial = net.Dial
+
+// smtpTLSConfig returns the TLS settings for an SMTP connection to host.  The
+// configured relay is always verified, as the SMTP password may be sent to
+// it.  Direct deliveries to a recipient's MX use opportunistic TLS (any
+// certificate is accepted, as most MTAs do) unless require_tls is set.  A
+// relay on the local machine is not verified either, as its traffic never
+// leaves the host.
+func smtpTLSConfig(host string, directMX bool) *tls.Config {
+	return &tls.Config{
+		ServerName:         host,
+		RootCAs:            smtpRootCAs,
+		InsecureSkipVerify: isLoopbackHost(host) || (directMX && !cfg.Mail.RequireTLS),
+	}
+}
+
 func smtpRelay(payload []byte, sendTo []string) (err error) {
-	conf := new(tls.Config)
-	//conf.CipherSuites = []uint16{tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA}
-	conf.InsecureSkipVerify = true
-	//conf.MinVersion = tls.VersionSSL30
-	//conf.MaxVersion = tls.VersionTLS10
 	relay := cfg.Mail.SMTPRelay
 	port := cfg.Mail.SMTPPort
+	directMX := false
 
 	/*
 		The following section tries to get the MX record for the
@@ -323,11 +351,19 @@ func smtpRelay(payload []byte, sendTo []string) (err error) {
 			)
 			relay = mx
 			port = "25"
+			directMX = true
 		}
 	}
+	return smtpSend(relay, port, directMX, payload, sendTo)
+}
+
+// smtpSend delivers payload to sendTo through the SMTP server at relay:port.
+// directMX is true when relay is the recipient's MX rather than the
+// configured relay.
+func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string) (err error) {
 	serverAddr := net.JoinHostPort(relay, port)
 
-	conn, err := net.Dial("tcp", serverAddr)
+	conn, err := smtpDial("tcp", serverAddr)
 	if err != nil {
 		log.Warnf("Dial Error: Server=%s, Error=%s", serverAddr, err)
 		return
@@ -345,7 +381,7 @@ func smtpRelay(payload []byte, sendTo []string) (err error) {
 	// Test if the remote MTA supports STARTTLS
 	ok, _ := client.Extension("STARTTLS")
 	if ok && cfg.Mail.UseTLS {
-		if err = client.StartTLS(conf); err != nil {
+		if err = client.StartTLS(smtpTLSConfig(relay, directMX)); err != nil {
 			log.Warnf(
 				"Error performing STARTTLS: Server=%s, Error=%s",
 				serverAddr,
@@ -353,11 +389,25 @@ func smtpRelay(payload []byte, sendTo []string) (err error) {
 			)
 			return
 		}
+	} else if cfg.Mail.RequireTLS {
+		err = fmt.Errorf("%s: no TLS available and require_tls is set", serverAddr)
+		log.Warn(err)
+		return
+	} else if !ok && cfg.Mail.UseTLS && !directMX && !isLoopbackHost(relay) {
+		// The configured relay is expected to offer STARTTLS.  If it
+		// doesn't, it's misconfigured or STARTTLS was stripped in
+		// transit, so don't fall back to plaintext.
+		err = fmt.Errorf("%s: configured relay does not offer STARTTLS", serverAddr)
+		log.Warn(err)
+		return
+	} else if !ok {
+		log.Infof("%s does not offer STARTTLS. Sending without TLS.", serverAddr)
 	}
 	// If AUTH is supported and a UserID and Password are configured, try to
-	// authenticate to the remote MTA.
+	// authenticate to the remote MTA.  Credentials are only ever sent to the
+	// configured relay, never to a recipient's MX.
 	ok, _ = client.Extension("AUTH")
-	if ok && cfg.Mail.Username != "" && cfg.Mail.Password != "" {
+	if ok && !directMX && cfg.Mail.Username != "" && cfg.Mail.Password != "" {
 		auth := smtp.PlainAuth(
 			"",
 			cfg.Mail.Username,

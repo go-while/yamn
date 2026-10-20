@@ -8,7 +8,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | ID | Severity | Summary | Status |
 |---|---|---|---|
 | [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | fixed (4f370cc) |
-| [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | open |
+| [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | fixed (6c0fb7e) |
 | [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | open |
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | open |
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | open |
@@ -71,6 +71,18 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 - **Fix:** Verify certificates (set `ServerName`). Add a config option to
   require TLS and refuse to send without it. Never send AUTH credentials over an
   unverified connection.
+- **Status:** fixed in `6c0fb7e` (branch `fix/02-smtp-tls-verify`).
+  - Configured relay: certificate verified; with `usetls` on, a relay that
+    offers no STARTTLS is refused (no plaintext fallback).
+  - Direct MX delivery: opportunistic TLS (any certificate, plaintext if no
+    STARTTLS), unless the new `mail.require_tls: true` is set, which requires
+    verified TLS for every delivery.
+  - Relay on localhost: plaintext or any certificate accepted.
+  - Credentials are only sent to the configured relay, never to an MX.
+  - Remaining gap: `require_tls` is not applied in `sendmail: true` mode
+    (`net/smtp.SendMail` verifies certificates but sends plaintext when
+    STARTTLS is not offered).
+  - Tests: `mail_test.go`.
 
 ### Y-03: Public keyring is trusted without verification
 

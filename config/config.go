@@ -43,6 +43,7 @@ type Config struct {
 		Pipe         string `yaml:"pipe"`
 		Outfile      bool   `yaml:"outfile"`
 		UseTLS       bool   `yaml:"usetls"`
+		RequireTLS   bool   `yaml:"require_tls"` // Refuse delivery without verified TLS
 		SMTPRelay    string `yaml:"smtp_relay"`
 		SMTPPort     string `yaml:"smtp_port"`
 		MXRelay      bool   `yaml:"mx_relay"`
@@ -270,6 +271,7 @@ func (f *Flags) newConfig() *Config {
 	c.Mail.SMTPRelay = "fleegle.mixmin.net"
 	c.Mail.SMTPPort = "587"
 	c.Mail.UseTLS = true
+	c.Mail.RequireTLS = false
 	c.Mail.MXRelay = true
 	c.Mail.OnionRelay = false // Allow .onion addresses as MX relays
 	c.Mail.Sender = ""
