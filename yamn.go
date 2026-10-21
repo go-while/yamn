@@ -75,7 +75,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Cannot log to file and journal")
 		os.Exit(1)
 	} else if cfg.General.LogToFile {
-		logfile, err := os.OpenFile(cfg.Files.Logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+		logfile, err := openLogFile(cfg.Files.Logfile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: Error opening logfile: %v", cfg.Files.Logfile, err)
 			os.Exit(1)
@@ -155,4 +155,10 @@ func main() {
 		// Flush the outbound pool
 		poolOutboundSend()
 	}
+}
+
+// openLogFile opens the log file for appending.  A new one is only readable
+// by its owner: logs can show when mail was sent and to which remailer.
+func openLogFile(name string) (*os.File, error) {
+	return os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 }

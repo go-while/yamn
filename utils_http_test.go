@@ -46,12 +46,50 @@ func TestHTTPGet(t *testing.T) {
 	}
 }
 
+// TestHTTPGetDowngradeRedirect checks that an https download isn't
+// redirected to plain http, while https to https still works.
+func TestHTTPGetDowngradeRedirect(t *testing.T) {
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("served over plain http\n"))
+	}))
+	defer plain.Close()
+	var secure *httptest.Server
+	secure = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/downgrade":
+			http.Redirect(w, r, plain.URL+"/pubring.mix", http.StatusFound)
+		case "/moved":
+			http.Redirect(w, r, secure.URL+"/pubring.mix", http.StatusFound)
+		default:
+			w.Write([]byte("served over https\n"))
+		}
+	}))
+	defer secure.Close()
+	// Trust the test server's certificate.
+	old := http.DefaultTransport
+	http.DefaultTransport = secure.Client().Transport
+	defer func() { http.DefaultTransport = old }()
+	out := filepath.Join(t.TempDir(), "pubring.mix")
+	if err := httpGet(secure.URL+"/downgrade", out, nil); err == nil {
+		t.Errorf("https URL was redirected to %s and the plain http download was accepted", plain.URL)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("the plain http download was written")
+	}
+	if err := httpGet(secure.URL+"/moved", out, nil); err != nil {
+		t.Errorf("https to https redirect: %s", err)
+	}
+	if b, _ := os.ReadFile(out); string(b) != "served over https\n" {
+		t.Errorf("got %q", b)
+	}
+}
+
 // TestHTTPGetValidation checks that a download failing validation leaves the
 // existing file untouched, and that a valid one replaces it without leaving
 // temporary files behind.
 func TestHTTPGetValidation(t *testing.T) {
-	const goodPubring = "rem rem@example.invalid 00112233445566778899aabbccddeeff 4:0.2.7 E 2026-01-01 2100-01-01\n\n" +
-		"-----Begin Mix Key-----\n00112233445566778899aabbccddeeff\n" + "aa" + "\n-----End Mix Key-----\n"
+	_, key := newTestRemailer(t, t.TempDir(), "rem", true)
+	goodPubring := string(key)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/html":

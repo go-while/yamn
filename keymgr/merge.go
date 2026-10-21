@@ -57,6 +57,7 @@ type pingerStats struct {
 	name      string
 	generated time.Time
 	rows      map[string]statsRow
+	fresh     bool // at most stale_hours old
 }
 
 // MergePingers cross-checks the keyrings and stats of several pingers and
@@ -64,13 +65,15 @@ type pingerStats struct {
 //
 // A key is only used if at least quorum pingers publish it (the same
 // address, name, keyid and public key).  If fewer pingers have a usable
-// keyring, all of them must agree.  So a single pinger that is wrong,
-// stale or compromised can neither add a key nor replace one.
+// keyring, nothing is merged and the current keyring is kept.  So a single
+// pinger that is wrong, stale or compromised can neither add a key nor
+// replace one.
 //
-// Stats come from the pingers whose mlist2.txt is no more than staleHours
-// old (from all of them if none is that fresh).  Each remailer gets the
-// median latency and uptime, rounded towards the worse value, and the
-// merged file carries the oldest Generated time used.
+// A remailer's stats must come from at least as many pingers as its key:
+// those whose mlist2.txt is no more than staleHours old, and older ones if
+// that's too few.  Stats dated in the future aren't used.  Each remailer
+// gets the median latency and uptime, and the merged file carries the
+// oldest Generated time used.
 //
 // Keys are checked for validity at now; useExpired keeps expired ones, as
 // for ImportPubring.
@@ -79,19 +82,22 @@ func MergePingers(pingers []PingerFiles, quorum, staleHours int, useExpired bool
 		quorum = 1
 	}
 	stats := mergeStatsSources(pingers, staleHours, now, &res)
-	keys := mergeKeys(pingers, quorum, useExpired, now, stats, &res)
+	keys := mergeKeys(pingers, quorum, useExpired, now, &res)
 	if keys == nil {
 		return
 	}
 	res.Pubring = writePubring(keys)
 	if len(stats) > 0 {
-		res.Stats = writeStats(keys, stats)
+		res.Stats = writeStats(keys, stats, res.Quorum, now, &res)
 	}
 	return
 }
 
-// mergeStatsSources parses the pingers' stats and returns the ones to use,
-// newest first.
+// maxClockSkew is how far in the future a pinger's Generated time may be.
+const maxClockSkew = time.Hour
+
+// mergeStatsSources parses the pingers' stats and returns the usable ones,
+// newest first, marking those at most staleHours old as fresh.
 func mergeStatsSources(pingers []PingerFiles, staleHours int, now time.Time, res *MergeResult) []pingerStats {
 	var all []pingerStats
 	for _, p := range pingers {
@@ -109,39 +115,33 @@ func mergeStatsSources(pingers []PingerFiles, staleHours int, now time.Time, res
 			res.warn("%s: stats unusable: %s", p.Name, err)
 			continue
 		}
+		// Future stats would count as fresh for as long as they claim.
+		if generated.After(now.Add(maxClockSkew)) {
+			res.warn("%s: stats are dated in the future (%s); not used", p.Name, generated.UTC().Format(generatedFormat))
+			continue
+		}
 		ps := pingerStats{name: p.Name, generated: generated, rows: make(map[string]statsRow)}
+		ps.fresh = now.Sub(generated) <= time.Duration(staleHours)*time.Hour
 		for _, row := range rows {
 			ps.rows[row.name] = row
 		}
 		all = append(all, ps)
 	}
-	// Newest first, so ties and options prefer the freshest pinger.
+	// Newest first, so options come from the freshest pinger.
 	slices.SortStableFunc(all, func(a, b pingerStats) int {
 		return b.generated.Compare(a.generated)
 	})
-	var fresh []pingerStats
-	maxAge := time.Duration(staleHours) * time.Hour
-	for _, ps := range all {
-		age := now.Sub(ps.generated)
-		if age > maxAge {
-			res.note("%s: stats are %s old, not used", ps.name, age.Round(time.Minute))
-			continue
-		}
-		fresh = append(fresh, ps)
-	}
-	if len(fresh) == 0 && len(all) > 0 {
-		res.warn("all pingers' stats are older than %d hours; using them anyway", staleHours)
-		return all
-	}
 	if len(all) == 0 {
 		res.warn("no pinger has usable stats")
+	} else if !all[0].fresh {
+		res.warn("all pingers' stats are older than %d hours; using them anyway", staleHours)
 	}
-	return fresh
+	return all
 }
 
 // mergeKeys returns the keys that reach the quorum, one per remailer, or
 // nil if no pinger has a usable keyring.
-func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time, stats []pingerStats, res *MergeResult) []Remailer {
+func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time, res *MergeResult) []Remailer {
 	// votes[address][key] collects the pingers publishing each key.
 	votes := make(map[string]map[string]*keyVote)
 	usable := 0
@@ -149,7 +149,7 @@ func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time
 		if p.Pubring == nil {
 			continue
 		}
-		if err := CheckPubring(p.Pubring); err != nil {
+		if err := checkPubring(p.Pubring, now, useExpired); err != nil {
 			res.warn("%s: keyring unusable: %s", p.Name, err)
 			continue
 		}
@@ -186,13 +186,16 @@ func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time
 		res.warn("no pinger has a usable keyring; keeping the current one")
 		return nil
 	}
-	res.Quorum = min(quorum, usable)
-	if res.Quorum < quorum {
+	// Accepting keys from fewer pingers would let one decide, e.g. on a
+	// first run while the others' files are missing.
+	if usable < quorum {
 		res.warn(
-			"only %d pinger(s) have a usable keyring; accepting keys published by %d instead of %d",
-			usable, res.Quorum, quorum,
+			"only %d of %d pinger(s) have a usable keyring, key_quorum is %d; keeping the current one",
+			usable, len(pingers), quorum,
 		)
+		return nil
 	}
+	res.Quorum = quorum
 
 	// Pick one key per address.
 	byName := make(map[string][]*keyVote)
@@ -202,7 +205,7 @@ func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time
 		var summary []string
 		for _, id := range sortedKeys(candidates) {
 			v := candidates[id]
-			v.rem = pickHeader(v, stats)
+			v.rem = pickHeader(v)
 			summary = append(summary, fmt.Sprintf(
 				"%s %x (%s)", v.rem.name, v.rem.Keyid[:4], strings.Join(v.pingers, ", "),
 			))
@@ -263,33 +266,45 @@ func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time
 }
 
 // pickHeader returns the vote's key with the header fields (version,
-// capabilities, dates) published by most of its pingers.  On a tie, the
-// pinger with the newest stats wins, then the first pinger listed.
-func pickHeader(v *keyVote, stats []pingerStats) Remailer {
-	rank := func(pinger string) int {
-		for i, ps := range stats {
-			if ps.name == pinger {
-				return i
+// capabilities, dates) published by most of its pingers, field by field.
+// A tie is decided conservatively, whichever pinger published what: a
+// middleman rather than an exit, the later valid-from and the earlier
+// valid-until date, the lower version.
+func pickHeader(v *keyVote) Remailer {
+	// votes[field][value] counts the pingers publishing value.
+	votes := make([]map[string]int, 7)
+	for i := range votes {
+		votes[i] = make(map[string]int)
+	}
+	for h, ps := range v.headers {
+		for i, f := range strings.Split(h, " ") {
+			votes[i][f] += len(ps)
+		}
+	}
+	// pick returns the value with the most votes; better reports whether
+	// a is preferred to b on a tie.
+	pick := func(field int, better func(a, b string) bool) string {
+		best, bestCount := "", 0
+		for _, val := range sortedKeys(votes[field]) {
+			n := votes[field][val]
+			if n > bestCount || (n == bestCount && better(val, best)) {
+				best, bestCount = val, n
 			}
 		}
-		return len(stats)
+		return best
 	}
-	best, bestCount, bestRank := "", 0, 0
-	for _, h := range sortedKeys(v.headers) {
-		ps := v.headers[h]
-		r := len(stats) + 1
-		for _, p := range ps {
-			r = min(r, rank(p))
-		}
-		if len(ps) > bestCount || (len(ps) == bestCount && r < bestRank) {
-			best, bestCount, bestRank = h, len(ps), r
-		}
-	}
+	lower := func(a, b string) bool { return a < b }
 	rem := v.rem
-	f := strings.Split(best, " ")
-	rem.version, rem.caps = f[3], f[4]
-	rem.from, _ = time.Parse(date_format, f[5])
-	rem.until, _ = time.Parse(date_format, f[6])
+	rem.version = pick(3, lower)
+	rem.caps = pick(4, func(a, b string) bool {
+		if am, bm := strings.Contains(a, "M"), strings.Contains(b, "M"); am != bm {
+			return am
+		}
+		return a < b
+	})
+	// Dates are YYYY-MM-DD, so they compare as strings.
+	rem.from, _ = time.Parse(date_format, pick(5, func(a, b string) bool { return a > b }))
+	rem.until, _ = time.Parse(date_format, pick(6, lower))
 	return rem
 }
 
@@ -339,14 +354,20 @@ func writePubring(keys []Remailer) []byte {
 
 // writeStats formats the merged stats of keys as an mlist2.txt file.
 // stats must be sorted newest first.
-func writeStats(keys []Remailer, stats []pingerStats) []byte {
+//
+// A remailer gets stats only from at least quorum pingers, so fewer can't
+// decide them.  All fresh pingers are used; if they're not enough, older
+// ones fill up to the quorum, newest first.
+func writeStats(keys []Remailer, stats []pingerStats, quorum int, now time.Time, res *MergeResult) []byte {
 	var rows []statsRow
+	used := make(map[string]bool) // pingers whose stats were used
 	for _, k := range keys {
 		var lat, up []int
+		var from []string
 		options := ""
 		for _, ps := range stats {
 			row, ok := ps.rows[k.name]
-			if !ok {
+			if !ok || (!ps.fresh && len(lat) >= quorum) {
 				continue
 			}
 			if len(lat) == 0 {
@@ -354,21 +375,42 @@ func writeStats(keys []Remailer, stats []pingerStats) []byte {
 			}
 			lat = append(lat, row.latent)
 			up = append(up, row.uptime)
+			from = append(from, ps.name)
 		}
-		if len(lat) == 0 {
+		if len(lat) < quorum {
+			res.note("%s: stats from %d pingers, %d needed; not used", k.name, len(lat), quorum)
 			continue
 		}
-		slices.Sort(lat)
-		slices.Sort(up)
-		// The median; with an even count, the worse of the middle two:
-		// the higher latency and the lower uptime.
+		for _, p := range from {
+			used[p] = true
+		}
 		rows = append(rows, statsRow{
 			name:    k.name,
-			latent:  lat[len(lat)/2],
-			uptime:  up[(len(up)-1)/2],
+			latent:  median(lat, true),
+			uptime:  median(up, false),
 			options: options,
 		})
 	}
+	var usedStats []pingerStats
+	for _, ps := range stats {
+		age := now.Sub(ps.generated).Round(time.Minute)
+		switch {
+		case !used[ps.name] && ps.fresh:
+			res.note("%s: stats not used", ps.name)
+			continue
+		case !used[ps.name]:
+			res.note("%s: stats are %s old, not used", ps.name, age)
+			continue
+		case !ps.fresh:
+			res.note("%s: stats are %s old, used where fresher ones are missing", ps.name, age)
+		}
+		usedStats = append(usedStats, ps)
+	}
+	if len(usedStats) == 0 {
+		res.warn("no remailer has stats from %d pingers", quorum)
+		return nil
+	}
+	stats = usedStats
 	// Most reliable first, then by name, as Echolot sorts.
 	slices.SortFunc(rows, func(a, b statsRow) int {
 		if a.uptime != b.uptime {
@@ -401,6 +443,22 @@ func writeStats(keys []Remailer, stats []pingerStats) []byte {
 	// An empty line ends the table.
 	fmt.Fprintln(&b)
 	return b.Bytes()
+}
+
+// median returns the median of v.  With an even count it's the mean of the
+// two middle values, rounded towards the worse one: up for a latency
+// (higherWorse), down for an uptime.
+func median(v []int, higherWorse bool) int {
+	slices.Sort(v)
+	n := len(v)
+	if n%2 == 1 {
+		return v[n/2]
+	}
+	sum := v[n/2-1] + v[n/2]
+	if higherWorse {
+		return (sum + 1) / 2
+	}
+	return sum / 2
 }
 
 // sortedKeys returns the keys of m in sorted order.
