@@ -696,7 +696,9 @@ not part of the repository yet and come with the fixes.
   using keys, and treat a missing file as "nothing to refresh".
 - **Found:** review 2, C-6 and K-10. Tests: `TestReviewC6StaleKeysKept`,
   `TestReviewReimportKeepsRemovedKeys`, `TestReviewKeyRefreshPanicsOnMissingFile`.
-- **Status:** open.
+- **Status:** fixed in `10bdce7` (branch `fix/35-stale-keys`, #49). Tests:
+  `TestExpiredKeyNotUsed`, `TestKeyRefreshMissingFile`,
+  `TestReimportDropsRemovedKeys`, `TestReimportRemovedNextHop`.
 
 ### Y-36: The advertised key is not checked against the secret keyring
 
