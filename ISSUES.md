@@ -730,7 +730,9 @@ not part of the repository yet and come with the fixes.
   - Add the `continue`.
 - **Found:** review 2, C-5 and C-8. Tests: `TestReviewC5PurgeKeepsPurgedKeyInTmp`,
   `TestReviewC5PurgeWritesLocalDates`, `TestReviewC8SecretKeyHexNotChecked`.
-- **Status:** open.
+- **Status:** fixed in `ec384eb` (branch `fix/37-secring`, #47). Tests:
+  `TestImportSecringBadSecretHex`, `TestPurgeRemovesPurgedKey`,
+  `TestPurgeWritesUTCDates`, `TestWriteFileSyncFailureKeepsOriginal`.
 
 ### Y-38: One corrupt idlog entry stops every startup
 
