@@ -73,6 +73,8 @@ type Config struct {
 		MessageDomain string `yaml:"message_domain"`
 		// Extra headers an exit passes through, besides the built-in list
 		AllowHeaders []string `yaml:"allow_headers"`
+		// Most recipients an exit mails one message to; 0 = no limit
+		MaxRecipients int `yaml:"max_recipients"`
 	} `yaml:"mail"`
 	Stats struct {
 		Minlat     int     `yaml:"minlat"`
@@ -100,6 +102,7 @@ type Config struct {
 		MaxSize     int    `yaml:"max_size"`
 		IDexp       int    `yaml:"id_expire"`
 		ChunkExpire int    `yaml:"chunk_expire"`
+		ChunkLimit  int    `yaml:"chunk_limit"`
 		MaxAge      int    `yaml:"max_age"`
 		Keylife     int    `yaml:"key_life"`
 		Keygrace    int    `yaml:"key_grace"`
@@ -331,6 +334,9 @@ func (f *Flags) newConfig() *Config {
 	c.Mail.OutboundAddy = "remailer@domain.invalid"
 	c.Mail.CustomFrom = false
 	c.Mail.MessageDomain = ""
+	// Enough for personal mail, but one message can't be fanned out to
+	// hundreds of addresses.
+	c.Mail.MaxRecipients = 10
 	c.Stats.Minrel = 98.0
 	c.Stats.Relfinal = 99.0
 	c.Stats.Minlat = 2
@@ -352,7 +358,12 @@ func (f *Flags) newConfig() *Config {
 	// Keep packet IDs longer than packets are accepted (max_age), so a
 	// packet can't be replayed after its ID expires.
 	c.Remailer.IDexp = 16
-	c.Remailer.ChunkExpire = 60
+	// The chunks of a message are sent together and arrive within hours.
+	// Mixmaster keeps partial messages for about a week too.
+	c.Remailer.ChunkExpire = 7
+	// At most this many partial chunk files, up to 17910 bytes each (about
+	// 18 MB in all).
+	c.Remailer.ChunkLimit = 1000
 	// Discard messages if packet timestamp exceeds this age in days
 	c.Remailer.MaxAge = 14
 	c.Remailer.Keylife = 14

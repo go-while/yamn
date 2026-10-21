@@ -77,8 +77,10 @@ type fakeSMTP struct {
 	ln        net.Listener
 	tlsConf   *tls.Config // nil: STARTTLS is not offered
 	offerAuth bool
-	stall     string        // "greeting" or "MAIL": stop responding at that point
-	closed    chan struct{} // closed when a stalled client hangs up
+	stall     string            // "greeting" or "MAIL": stop responding at that point
+	closed    chan struct{}     // closed when a stalled client hangs up
+	rcptReply map[string]string // RCPT replies by address (default "250 OK")
+	dataReply string            // reply after the message (default "250 Queued")
 
 	mu        sync.Mutex
 	usedTLS   bool
@@ -172,8 +174,12 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 			addr := strings.Trim(strings.TrimSpace(line[len("RCPT TO:"):]), "<>")
 			s.mu.Lock()
 			s.rcpts = append(s.rcpts, addr)
+			reply := s.rcptReply[addr]
 			s.mu.Unlock()
-			tp.PrintfLine("250 OK")
+			if reply == "" {
+				reply = "250 OK"
+			}
+			tp.PrintfLine("%s", reply)
 		case strings.HasPrefix(cmd, "MAIL"):
 			tp.PrintfLine("250 OK")
 		case cmd == "DATA":
@@ -183,10 +189,14 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 				return
 			}
 			s.mu.Lock()
-			s.data = data
-			s.delivered = true
+			reply := s.dataReply
+			if reply == "" {
+				reply = "250 Queued"
+				s.data = data
+				s.delivered = true
+			}
 			s.mu.Unlock()
-			tp.PrintfLine("250 Queued")
+			tp.PrintfLine("%s", reply)
 		case cmd == "QUIT":
 			tp.PrintfLine("221 Bye")
 			return
