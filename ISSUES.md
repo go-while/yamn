@@ -361,7 +361,11 @@ not part of the repository yet and come with the fixes.
     and drop.
 - **Found:** review 2, C-1 and K-20. Tests: `TestReviewC1PubringAddressWithoutAt`,
   `TestReviewC1LongAddressPanics`, `TestReviewDuplicateNameLastWins`.
-- **Status:** open.
+- **Status:** fixed in `5d873f0` (branch `fix/23-pubring-validation`, #50).
+  Tests: `TestEncodeMsgUnknownHop`, `TestImportPubringAmbiguous`,
+  `TestLongPubringAddress`, `TestRandhopBadPubringAddress`,
+  `TestReadPubringValidatesHeader`, `TestRealPubringsValid`,
+  `TestSetNameAddressValidated`.
 
 ### Y-24: Quoted addresses inject ESMTP parameters past the block list
 
