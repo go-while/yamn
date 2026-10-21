@@ -797,7 +797,8 @@ not part of the repository yet and come with the fixes.
   Content-Type.
 - **Found:** review 2, M-9. Tests: `TestReviewFooIgnoresDestBlock`,
   `TestReviewFooReplyHeaders`.
-- **Status:** open.
+- **Status:** fixed in `b937780` (branch `fix/42-reply-headers`, #38). Tests:
+  `TestRemailerFooDestBlock`, `TestRemailerFooReplyHeaders`.
 
 ### Y-43: No limit on recipients per exit message
 
