@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -540,7 +541,7 @@ func mailBytes(payload []byte, sendTo []string) (err error) {
 			return
 		}
 		log.Tracef("Wrote output to %s", filename)
-	} else if cfg.Mail.Pipe != "" {
+	} else if strings.TrimSpace(cfg.Mail.Pipe) != "" {
 		err = execSend(payload, cfg.Mail.Pipe, sendTo)
 		if err != nil {
 			log.Warn("Email pipe failed")
@@ -591,38 +592,36 @@ func pipeReadsHeaders(execCmd string) bool {
 // keep working that way; nagOperator warns that the block list and Bcc
 // don't apply then.
 func execSend(payload []byte, execCmd string, sendTo []string) (err error) {
-	sendmail := new(exec.Cmd)
-	sendmail.Args = strings.Fields(execCmd)
-	sendmail.Path = sendmail.Args[0]
+	args := strings.Fields(execCmd)
+	if len(args) == 0 {
+		return errors.New("mail.pipe has no command")
+	}
 	if !pipeReadsHeaders(execCmd) {
-		if sendmail.Args[len(sendmail.Args)-1] != "--" {
-			sendmail.Args = append(sendmail.Args, "--")
+		if args[len(args)-1] != "--" {
+			args = append(args, "--")
 		}
-		sendmail.Args = append(sendmail.Args, sendTo...)
+		args = append(args, sendTo...)
 	}
-
-	stdin, err := sendmail.StdinPipe()
-	if err != nil {
-		log.Errorf("%s: %s", execCmd, err)
-		return
-	}
-	defer stdin.Close()
+	// A command that hangs would stall the outbound pool, so it's killed
+	// after pipeTimeout.  The message stays in the pool and is tried again.
+	ctx, cancel := context.WithTimeout(context.Background(), pipeTimeout)
+	defer cancel()
+	sendmail := exec.CommandContext(ctx, args[0], args[1:]...)
+	sendmail.Stdin = bytes.NewReader(payload)
 	sendmail.Stdout = os.Stdout
 	sendmail.Stderr = os.Stderr
-	err = sendmail.Start()
-	if err != nil {
-		log.Errorf("%s: %s", execCmd, err)
-		return
+	err = sendmail.Run()
+	if ctx.Err() != nil {
+		err = fmt.Errorf("killed after %s: %w", pipeTimeout, ctx.Err())
 	}
-	stdin.Write(payload)
-	stdin.Close()
-	err = sendmail.Wait()
 	if err != nil {
 		log.Errorf("%s: %s", execCmd, err)
-		return
 	}
 	return
 }
+
+// pipeTimeout is how long the mail.pipe command may run.  Tests shorten it.
+var pipeTimeout = 5 * time.Minute
 
 // isLoopbackHost reports whether host is the local machine, where mail
 // travels without leaving the host and plaintext SMTP is acceptable.
