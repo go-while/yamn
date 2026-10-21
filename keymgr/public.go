@@ -68,13 +68,24 @@ func (p *Pubring) UseExpired() {
 	p.useExpired = true
 }
 
-// KeyRefresh returns True if the Pubring file has been modified
+// KeyRefresh returns True if the Pubring file has been modified.  Without
+// a file there's nothing to refresh.
 func (p *Pubring) KeyRefresh() bool {
 	stat, err := os.Stat(p.pubringFile)
 	if err != nil {
-		panic(err)
+		return false
 	}
 	return stat.ModTime().After(p.keysImported)
+}
+
+// expired reports whether r's key is past its valid-until day and must not
+// be used.
+func (p Pubring) expired(r Remailer) bool {
+	if p.useExpired {
+		return false
+	}
+	_, untilNextMidnight := midnights(r.until)
+	return time.Now().After(untilNextMidnight)
 }
 
 // StatRefresh returns True if the mlist2.txt file has been modified
@@ -92,6 +103,9 @@ func (p *Pubring) StatRefresh() (refresh bool) {
 func (p Pubring) Candidates(minlat, maxlat int, minrel float32, exit bool) (c []string) {
 	for addy := range p.pub {
 		stats := p.pub[addy]
+		if p.expired(stats) {
+			continue
+		}
 		if exit {
 			if strings.Contains(stats.caps, "M") {
 				// Exits are required and this is a Middle
@@ -161,6 +175,14 @@ func (p Pubring) Get(ref string) (r Remailer, err error) {
 			return
 		}
 		r = p.pub[addy]
+	}
+	// A key can expire while a long-running remailer has it in memory.
+	if p.expired(r) {
+		err = fmt.Errorf(
+			"%s: Remailer key expired on %s",
+			ref,
+			r.until.UTC().Format(date_format),
+		)
 	}
 	return
 }
@@ -354,18 +376,26 @@ func (p *Pubring) ImportPubring() (err error) {
 		return
 	}
 	defer f.Close()
+	stat, err := f.Stat()
+	if err != nil {
+		return
+	}
 	rems, err := readPubring(f, time.Now(), p.useExpired, stderrWarn)
 	if err != nil {
 		return
 	}
+	// MergePingers decides ambiguous names and addresses by the pingers'
+	// votes; within one keyring there's nothing to decide by.
+	rems = dropAmbiguous(rems, stderrWarn)
+	// Replace the keys, so keys that left the file are dropped.
+	p.pub = make(map[string]Remailer)
+	p.xref = make(map[string]string)
 	for _, rem := range rems {
 		p.Put(rem)
 	}
+	// The stats are kept in the keys: read them again on next use.
+	p.statsImported = time.Time{}
 	// Set key imported timestamp
-	stat, err := os.Stat(p.pubringFile)
-	if err != nil {
-		panic(err)
-	}
 	p.keysImported = stat.ModTime()
 	return
 }
@@ -393,6 +423,14 @@ func readPubring(r io.Reader, now time.Time, useExpired bool, warn warnFunc) (re
 			elements := strings.Split(line, " ")
 			// 7 elements indicates a remailer header line in Pubring.mix
 			if len(elements) != 7 {
+				continue
+			}
+			if !ValidName(elements[0]) {
+				warn("%q: Invalid remailer name. Ignoring key.", elements[0])
+				continue
+			}
+			if !ValidAddress(elements[1]) {
+				warn("%s: Invalid remailer address %q. Ignoring key.", elements[0], elements[1])
 				continue
 			}
 			from, err := time.Parse(date_format, elements[5])
@@ -489,6 +527,73 @@ func readPubring(r io.Reader, now time.Time, useExpired bool, warn warnFunc) (re
 	} // End of file scan loop
 	err = scanner.Err()
 	return
+}
+
+// ValidName reports whether name can be a remailer name: lowercase letters
+// and digits.  Chains, stats and Get refer to remailers by name, so it
+// mustn't contain "@", "," or "%", nor be "*".
+func ValidName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, c := range name {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidAddress reports whether addr can be a remailer address: one
+// local@domain of at most 52 bytes (the size of the next-hop field), in
+// printable ASCII without spaces or the special characters of mail
+// headers.
+func ValidAddress(addr string) bool {
+	if len(addr) > maxAddyLen {
+		return false
+	}
+	local, domain, ok := strings.Cut(addr, "@")
+	if !ok || local == "" || domain == "" || strings.Contains(domain, "@") {
+		return false
+	}
+	for i := 0; i < len(addr); i++ {
+		c := addr[i]
+		if c <= ' ' || c >= 0x7f || strings.IndexByte(`"(),:;<>[\]`, c) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// dropAmbiguous removes the keys whose name is used by several addresses,
+// or whose address is used by several names: there's no telling which one
+// is meant.  Several keys for one name and address (a key rotation) are
+// fine.
+func dropAmbiguous(rems []Remailer, warn warnFunc) []Remailer {
+	addrs := make(map[string]map[string]bool) // name -> addresses
+	names := make(map[string]map[string]bool) // address -> names
+	for _, r := range rems {
+		if addrs[r.name] == nil {
+			addrs[r.name] = make(map[string]bool)
+		}
+		addrs[r.name][r.Address] = true
+		if names[r.Address] == nil {
+			names[r.Address] = make(map[string]bool)
+		}
+		names[r.Address][r.name] = true
+	}
+	var keep []Remailer
+	for _, r := range rems {
+		switch {
+		case len(addrs[r.name]) > 1:
+			warn("%s: Name is used by several addresses. Ignoring %s.", r.name, r.Address)
+		case len(names[r.Address]) > 1:
+			warn("%s: Address is used by several names. Ignoring %s.", r.Address, r.name)
+		default:
+			keep = append(keep, r)
+		}
+	}
+	return keep
 }
 
 // makeKeyID generates a 16 Byte KeyID based on the hash of a Public Key
