@@ -51,6 +51,18 @@ yamn --remailer --daemon
 Hand mail to a remailer from an MTA, or an mbox written by --stdout
 yamn --read-mail < message
 
+Keyring updates:-
+By default (urls.fetch: true) yamn --mail downloads the keyring and stats
+right before sending when they are more than an hour old.  The pingers then
+see your IP address and when you send, and a pinger that is down delays the
+message by up to 30 s per file.  To keep the downloads apart from sending,
+set "urls: fetch: false" in yamn.yml and run yamn --refresh on a schedule,
+at a random time, e.g. this crontab line (every 6 hours, up to an hour late):
+0 */6 * * * sleep $(shuf -i 0-3600 -n 1); yamn --dir $HOME/yamn --refresh
+or a systemd timer with RandomizedDelaySec=1h.  --refresh downloads even
+with fetch: false.  A remailer with fetch: false needs such a schedule too,
+as it then no longer downloads them every hour.
+
 See doc/yamn.1 for all options, and ISSUES.md for known issues.
 
 Versions:-
