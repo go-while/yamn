@@ -4,9 +4,9 @@
 yamn - An anonymous remailer application
 
 .SH SYNOPSIS
-.B [-m] [-s] [-l rem1,rem2,rem3,...] [-t user@host] [-s subject] [-c num] [recipient] filename
+.B yamn -m [-S] [-l rem1,rem2,rem3,...] [-t user@host] [-s subject] [-c num] [[recipient] filename]
 .PP
-.B [-M] [-D] [-s]
+.B yamn -M [-D] [-S]
 
 .SH DESCRIPTION
 Yamn (Yet another Mix network) is  an  anonymous  remailer.  Remailers  provide
@@ -34,7 +34,11 @@ Use this configuration file.  See
 for where yamn looks without this option.
 .TP
 .B "-d, --dummy"
-Send a dummy message through a random chain.
+Send a dummy message through a random chain of two remailers.  The dummies
+sent along with a message
+.RB ( -m )
+take such a chain too, not the message's
+.BR --chain .
 .TP
 .B "--debug"
 Print the configuration in use, with all defaults filled in, and exit.
@@ -183,7 +187,16 @@ and
 .I examples/yamn.yml.remailer
 are minimal starting points.
 .B "yamn --debug"
-prints the configuration in effect.
+prints the configuration in effect.  A path in the
+.B files
+section that starts with
+.I ~/
+is in your home directory.
+.SS Stale statistics
+Statistics older than
+.B stats.stale_hours
+(default 24) are still used to pick random remailers; yamn only warns about
+them.  With several pingers, see below.
 .SS Several pingers
 By default the keyring and statistics come from a single pinger
 .RB ( urls.pubring
@@ -214,7 +227,9 @@ Statistics are the median of the pingers whose
 is at most
 .B stats.stale_hours
 old, taking the higher latency and lower uptime when there are two middle
-values.  The merged file carries the oldest Generated time used.
+values.  The merged file carries the oldest Generated time used.  If every
+pinger's statistics are older than that, all of them are used, with a
+warning.
 .PP
 Disagreements between pingers are logged (loglevel info), problems with a
 pinger as warnings.  A pinger that can't be reached keeps its last downloaded

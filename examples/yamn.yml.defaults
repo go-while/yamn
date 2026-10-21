@@ -25,6 +25,7 @@ general:
 # Paths are relative to --dir, or to the current directory if --dir isn't
 # given.
 files:
+    # A path starting with ~/ is in your home directory.
     # Public keyring of all known remailers (downloaded from urls.pubring)
     pubring: pubring.mix
     # Remailer statistics (downloaded from urls.mlist2)
@@ -133,7 +134,9 @@ stats:
     num_copies: 2
     # Don't reuse a remailer within this many hops of the chain
     distance: 2
-    # Warn if the stats are older than this many hours
+    # Warn if the stats are older than this many hours. Older stats are still
+    # used; with several pingers, only those within this age are, or all of
+    # them if none is.
     stale_hours: 24
     # Also consider remailers whose keys have expired
     use_expired: false
