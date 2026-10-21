@@ -809,7 +809,8 @@ not part of the repository yet and come with the fixes.
 - **Fix:** `mail.max_recipients` (default around 10), announced in
   `remailer-conf`.
 - **Found:** review 2, M-10. Test: `TestReviewRecipientFanOut`.
-- **Status:** open.
+- **Status:** fixed in `7107b69` (branch `fix/43-max-recipients`, #39). Tests:
+  `TestMailPoolFileMaxRecipients`, `TestRemailerConfMaxRecipients`.
 
 ### Y-44: No pool lock: `-S` next to a `--daemon` remailer sends twice
 
