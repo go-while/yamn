@@ -61,21 +61,7 @@ func loopServer() (err error) {
 	expireRejected()
 	// Complain about poor configs
 	nagOperator()
-	// Run a key purge
-	if purgeSecring(secret) == 0 {
-		// If there are zero active keys, generate a new one.
-		generateKeypair(secret)
-	} else {
-		/*
-			If the operator changes his configuration, (such as
-			upgrading to a new version or switching from exit to
-			middleman), the published key will not match the
-			configuration.  This element of code writes a new
-			key.txt file with current settings.  This only needs to
-			be done if we haven't generated a new key.
-		*/
-		refreshPubkey(secret)
-	}
+	startupKeys(secret)
 
 	log.Infof("Secret keyring contains %d keys", secret.Count())
 	if flag.MemInfo {
@@ -175,6 +161,33 @@ func loopServer() (err error) {
 	return
 }
 
+// startupKeys runs a key purge and makes sure key.txt advertises a usable
+// key, generating a new one if needed.
+func startupKeys(secret *keymgr.Secring) {
+	if purgeSecring(secret) == 0 {
+		// If there are zero active keys, generate a new one.
+		generateKeypair(secret)
+		return
+	}
+	// key.txt can advertise a key the remailer can't decrypt: after a
+	// crash while generating it, a restore of mismatched files, or a key
+	// created with the clock ahead (not valid yet, so not imported).
+	if _, err := secret.CheckAdvertised(); err != nil {
+		log.Warnf("%s. Generating a new key.", err)
+		generateKeypair(secret)
+		return
+	}
+	/*
+		If the operator changes his configuration, (such as
+		upgrading to a new version or switching from exit to
+		middleman), the published key will not match the
+		configuration.  This element of code writes a new
+		key.txt file with current settings.  This only needs to
+		be done if we haven't generated a new key.
+	*/
+	refreshPubkey(secret)
+}
+
 // refreshPubkey updates an existing Public key file
 func refreshPubkey(secret *keymgr.Secring) {
 	tmpKey := cfg.Files.Pubkey + ".tmp"
@@ -210,10 +223,12 @@ func generateKeypair(secret *keymgr.Secring) {
 	pub, sec := eccGenerate()
 	keyidstr := secret.Insert(pub, sec)
 	log.Infof("Generated new keypair with keyid: %s", keyidstr)
-	log.Info("Writing new Public Key to disc")
-	secret.WritePublic(pub, keyidstr)
+	// The secret first: a key must never be advertised before it's
+	// stored.
 	log.Info("Inserting Secret Key into Secring")
 	secret.WriteSecret(keyidstr)
+	log.Info("Writing new Public Key to disc")
+	secret.WritePublic(pub, keyidstr)
 }
 
 // idLogExpire deletes old entries in the ID Log
