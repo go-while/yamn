@@ -50,8 +50,9 @@ files:
     # Log file, used with general.logtofile
     logfile: yamn.log
     # Destination block list: addresses that must not receive mail from this
-    # exit. One address or "@domain" per line, "#" starts a comment. Read for
-    # every message, so edits apply immediately. A missing file blocks nobody.
+    # exit, nor replies to remailer-* requests. One address or "@domain" per
+    # line, "#" starts a comment. Read for every message, so edits apply
+    # immediately. A missing file blocks nobody.
     dest_block: dest.blk
 
 # Where yamn downloads the public keyring and stats from. A download only
@@ -78,8 +79,11 @@ mail:
     # Send through the configured relay using Go's SMTP client (smtp_relay,
     # smtp_port, username, password), never directly to recipients' MX.
     sendmail: false
-    # Pipe mail to this command instead, e.g. "/usr/sbin/sendmail -t".
-    # Overrides sendmail and the built-in SMTP client.
+    # Pipe mail to this command instead, e.g. "/usr/sbin/sendmail -i".
+    # Overrides sendmail and the built-in SMTP client. The recipients are
+    # added as arguments after "--". With -t (which upstream yamn needs),
+    # no recipients are passed and the command takes them from the headers;
+    # the block list and Bcc then don't work.
     pipe: ""
     # Write outbound mail to files in the pool instead of sending it (testing).
     # Overrides all other delivery options.
@@ -119,6 +123,9 @@ mail:
     # MIME-Version, X-No-Archive, Content-*). The client applies the same list
     # to the messages it sends, unless --keep-headers is given.
     allow_headers: []
+    # Most recipients (To, Cc and Bcc, after the block list) an exit mails a
+    # message to. A message with more is not delivered. 0 means no limit.
+    max_recipients: 10
 
 # How a client (or a remailer sending dummies) picks random remailers.
 stats:
@@ -174,7 +181,11 @@ remailer:
     # max_age + 1; shorter values are raised to max_age + 2.
     id_expire: 16
     # Days a partly received multi-chunk message is kept
-    chunk_expire: 60
+    chunk_expire: 7
+    # Most chunks (up to 18 kB each) kept from partly received messages.
+    # While it's reached, only chunks that complete a message are kept; 0
+    # means no limit
+    chunk_limit: 1000
     # Reject packets older than this many days
     max_age: 14
     # Days a remailer key is valid, and how long it's kept after expiring

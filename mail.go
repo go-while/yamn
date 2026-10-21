@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -31,12 +32,42 @@ func assemble(msg mail.Message) []byte {
 		}
 	}
 	buf.WriteString("\n")
-	buf.ReadFrom(msg.Body)
+	body, _ := io.ReadAll(msg.Body)
+	buf.Write(fixBareCR(body))
 	return buf.Bytes()
 }
 
+// fixBareCR turns every CR in b that isn't followed by LF into LF, in
+// place.  A lone CR isn't a line end to Go's SMTP client, so "\r.\r" would
+// reach the server unescaped, and some servers take that as the end of
+// DATA.  As an LF it's sent as CRLF, and a leading dot gets escaped.
+func fixBareCR(b []byte) []byte {
+	for i, c := range b {
+		if c == '\r' && (i+1 == len(b) || b[i+1] != '\n') {
+			b[i] = '\n'
+		}
+	}
+	return b
+}
+
+// badHeader returns the name of the first header in h with a CR or NUL in
+// its value, or "" if there is none.  net/mail keeps a lone CR inside a
+// value, and a receiver that takes it as a line end would see a header the
+// exit never filtered (e.g. "Reply-To: x@example\rFrom: ...").
+func badHeader(h mail.Header) string {
+	for k, values := range h {
+		for _, v := range values {
+			if strings.ContainsAny(v, "\r\x00") {
+				return k
+			}
+		}
+	}
+	return ""
+}
+
 // headToAddy parses a header containing email addresses.  Every occurrence
-// of the header is read, not only the first.
+// of the header is read, not only the first.  Addresses that fail
+// validRecipient are skipped.
 func headToAddy(h mail.Header, header string) (addys []string) {
 	for _, v := range h[header] {
 		addyList, err := mail.ParseAddressList(v)
@@ -45,10 +76,53 @@ func headToAddy(h mail.Header, header string) (addys []string) {
 			continue
 		}
 		for _, addy := range addyList {
+			if !validRecipient(addy.Address) {
+				log.Warnf("Ignoring an invalid address in the %s header", header)
+				continue
+			}
 			addys = append(addys, addy.Address)
 		}
 	}
 	return
+}
+
+// validRecipient reports whether addy is a plain ASCII address that is safe
+// to pass to RCPT TO and to match against the block list: one "@", a
+// dot-atom local part and a host name.  mail.ParseAddress returns a quoted
+// local part without its quotes, so it could carry "<", ">" or spaces (and
+// with them ESMTP parameters) into the RCPT command.  Source routes ("%",
+// "!"), address literals and a trailing dot are refused too, as they would
+// get past the destination block list.
+func validRecipient(addy string) bool {
+	local, domain, ok := strings.Cut(addy, "@")
+	if !ok || len(local) > 64 || len(addy) > 254 {
+		return false
+	}
+	for _, atom := range strings.Split(local, ".") {
+		if atom == "" || strings.IndexFunc(atom, func(c rune) bool { return !isAtext(c) }) >= 0 {
+			return false
+		}
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		if strings.IndexFunc(label, func(c rune) bool { return !isAlnum(c) && c != '-' }) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// isAlnum reports whether c is an ASCII letter or digit.
+func isAlnum(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
+// isAtext reports whether c may appear in a dot-atom (RFC 5322 atext),
+// leaving out "%" and "!", which some MTAs treat as routing.
+func isAtext(c rune) bool {
+	return isAlnum(c) || strings.ContainsRune("#$&'*+-/=?^_`{|}~", c)
 }
 
 // exitHeaders lists the headers passed through from a pooled message to the
@@ -305,57 +379,75 @@ func parseFrom(h mail.Header) []string {
 	}).String()}
 }
 
+// poolFileAge returns how many days ago a pool file was written.  The date is
+// read from the first line only, where writeInternalHeader puts it, so the
+// sender's data that follows can't change it (a plaintext starting with a
+// space used to continue the header).  If the line is missing or its date
+// doesn't parse, the file's modification time is used, so every file expires
+// after pool.max_age days.
+func poolFileAge(filename string, content []byte) int {
+	if line, ok := bytes.CutPrefix(content, []byte("Yamn-Pooled-Date: ")); ok {
+		if i := bytes.IndexByte(line, '\n'); i >= 0 {
+			line = line[:i]
+		}
+		date, err := time.Parse(shortdate, strings.TrimSpace(string(line)))
+		if err == nil {
+			return daysAgo(date)
+		}
+		log.Warnf("%s: Failed to parse Yamn-Pooled-Date, using the file time: %s", filename, err)
+	} else {
+		// Legacy condition.  All current versions apply this header.
+		log.Warnf("%s: No Yamn-Pooled-Date header, using the file time", filename)
+	}
+	info, err := os.Stat(filename)
+	if err != nil {
+		return 0
+	}
+	return daysAgo(info.ModTime())
+}
+
 // Read a file from the outbound pool and mail it
 func mailPoolFile(filename string) (delFlag bool, err error) {
 	// This flag implies that, by default, we don't delete pool messages
 	delFlag = false
 
-	f, err := os.Open(filename)
+	content, err := os.ReadFile(filename)
 	if err != nil {
 		log.Errorf("Failed to read file for mailing: %s", err)
 		return
 	}
-	defer f.Close()
+	age := poolFileAge(filename, content)
+	if age > cfg.Pool.MaxAge {
+		// The message has expired.  Give up trying to send it.
+		log.Infof(
+			"%s: Refusing to mail pool file. Exceeds max age of %d days",
+			filename,
+			cfg.Pool.MaxAge,
+		)
+		// Set deletion flag.  We don't want to retain old messages
+		// forever.
+		delFlag = true
+		return
+	}
+	if age > 0 {
+		log.Tracef("Mailing pooled file that's %d days old.", age)
+	}
 
-	msg, err := mail.ReadMessage(f)
+	// The message follows the internal header line.
+	msg, err := mail.ReadMessage(bytes.NewReader(stripInternalHeader(content)))
 	if err != nil {
 		log.Errorf("Failed to process mail file: %s", err)
 		// If we can't process it, it'll never get sent.  Mark for delete.
 		delFlag = true
 		return
 	}
-
-	// Test for a Pooled Date header in the message.
-	pooledHeader := msg.Header.Get("Yamn-Pooled-Date")
-	if pooledHeader == "" {
-		// Legacy condition.  All current versions apply this header.
-		log.Warn("No Yamn-Pooled-Date header in message")
-	} else {
-		var pooledDate time.Time
-		pooledDate, err = time.Parse(shortdate, pooledHeader)
-		if err != nil {
-			log.Errorf("%s: Failed to parse Yamn-Pooled-Date: %s", filename, err)
-			return
-		}
-		age := daysAgo(pooledDate)
-		if age > cfg.Pool.MaxAge {
-			// The message has expired.  Give up trying to send it.
-			log.Infof(
-				"%s: Refusing to mail pool file. Exceeds max age of %d days",
-				filename,
-				cfg.Pool.MaxAge,
-			)
-			// Set deletion flag.  We don't want to retain old
-			// messages forever.
-			delFlag = true
-			return
-		}
-		if age > 0 {
-			log.Tracef("Mailing pooled file that's %d days old.", age)
-		}
-		// Delete the internal header we just tested.
-		delete(msg.Header, "Yamn-Pooled-Date")
+	if h := badHeader(msg.Header); h != "" {
+		err = fmt.Errorf("%s: refusing to mail a %s header with a CR or NUL in it", filename, h)
+		delFlag = true
+		return
 	}
+	// The sender can't set internal headers.
+	delete(msg.Header, "Yamn-Pooled-Date")
 
 	// Add some required headers to the message.
 	msg.Header["Date"] = []string{time.Now().Format(rfc5322date)}
@@ -396,6 +488,12 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 		return
 	}
 	sendTo = allowed
+	// Limit the fan-out of a single anonymous message.
+	if limit := cfg.Mail.MaxRecipients; limit > 0 && len(sendTo) > limit {
+		err = fmt.Errorf("%s: %d recipients exceed max_recipients of %d", filename, len(sendTo), limit)
+		delFlag = true
+		return
+	}
 	// Temporary errors keep the file for the next pool run.  Permanent
 	// ones delete it: retrying won't help.
 	err = mailBytes(assemble(*msg), sendTo)
@@ -410,22 +508,15 @@ func mailBytes(payload []byte, sendTo []string) (err error) {
 	// Test if the message is destined for the local remailer
 	log.Tracef("Message recipients are: %s", strings.Join(sendTo, ","))
 	if cfg.Mail.Outfile {
-		var f *os.File
-		filename := randPoolFilename("outfile-")
-		log.Tracef("Writing output to %s", filename)
-		f, err = os.Create(filename)
+		var filename string
+		filename, err = writePoolFile("outfile-", payload)
 		if err != nil {
-			log.Warnf("Pool file creation failed: %s\n", err)
+			log.Warnf("Outfile write failed: %s", err)
 			return
 		}
-		defer f.Close()
-		_, err = f.WriteString(string(payload))
-		if err != nil {
-			log.Warnf("Outfile write failed: %s\n", err)
-			return
-		}
+		log.Tracef("Wrote output to %s", filename)
 	} else if cfg.Mail.Pipe != "" {
-		err = execSend(payload, cfg.Mail.Pipe)
+		err = execSend(payload, cfg.Mail.Pipe, sendTo)
 		if err != nil {
 			log.Warn("Email pipe failed")
 			return
@@ -446,11 +537,44 @@ func mailBytes(payload []byte, sendTo []string) (err error) {
 	return
 }
 
-// Pipe mail to an external command (E.g. sendmail -t)
-func execSend(payload []byte, execCmd string) (err error) {
+// pipeReadsHeaders reports whether the pipe command has sendmail's -t
+// option (alone or as in -ti or -it), which takes the recipients from the
+// headers rather than from execSend's arguments.
+func pipeReadsHeaders(execCmd string) bool {
+	fields := strings.Fields(execCmd)
+	for i := 1; i < len(fields); i++ {
+		f := fields[i]
+		if f == "--" {
+			break
+		}
+		if len(f) > 1 && f[0] == '-' && strings.Trim(f[1:], "it") == "" && strings.Contains(f, "t") {
+			return true
+		}
+	}
+	return false
+}
+
+// execSend pipes mail to an external command (e.g. "/usr/sbin/sendmail -i").
+// The recipients are added as arguments after "--", so they can't be read
+// as options.  They are the ones left after the block list, and include
+// Bcc, which is no longer in the headers.
+//
+// A command with -t gets no recipient arguments, as before: it takes them
+// from the headers, and sendmail-like MTAs differ in what they do with
+// arguments given together with -t (Exim and Sendmail remove them from the
+// recipients).  Setups shared with upstream yamn, which always needs -t,
+// keep working that way; nagOperator warns that the block list and Bcc
+// don't apply then.
+func execSend(payload []byte, execCmd string, sendTo []string) (err error) {
 	sendmail := new(exec.Cmd)
 	sendmail.Args = strings.Fields(execCmd)
 	sendmail.Path = sendmail.Args[0]
+	if !pipeReadsHeaders(execCmd) {
+		if sendmail.Args[len(sendmail.Args)-1] != "--" {
+			sendmail.Args = append(sendmail.Args, "--")
+		}
+		sendmail.Args = append(sendmail.Args, sendTo...)
+	}
 
 	stdin, err := sendmail.StdinPipe()
 	if err != nil {
