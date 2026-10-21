@@ -107,9 +107,27 @@ and
 .BR urls.mlist2 ,
 or from every pinger in
 .BR urls.pingers )
-and exit.  A download only replaces the current file if it reads as a keyring
+and exit, also with
+.BR "urls.fetch: false" .
+A download only replaces the current file if it reads as a keyring
 with at least one key valid now, or as statistics with at least one remailer.
 An https URL isn't followed to a plain http one.
+.IP
+With
+.B "urls.fetch: true"
+(the default),
+.B -m
+downloads the files right before sending when they are more than an hour
+old: the pingers see your IP address and when you send, and a pinger that
+is down delays sending by up to 30 seconds per file.  To keep downloads
+apart from sending, set
+.B "urls.fetch: false"
+and run
+.B "yamn --refresh"
+on a schedule at a random time, for example from cron with
+.B "sleep $(shuf -i 0-3600 -n 1)"
+before it, or from a systemd timer with
+.BR RandomizedDelaySec .
 .TP
 .B "-s, --subject=\fIsubject"
 Specify a Subject header for the message.  If this isn't defined, the Subject

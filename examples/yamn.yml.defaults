@@ -63,7 +63,10 @@ files:
 # Where yamn downloads the public keyring and stats from. A download only
 # replaces the local file if it looks valid.
 urls:
-    # Download the keyring and stats when they are more than an hour old
+    # Download the keyring and stats when they are more than an hour old: a
+    # client right before sending (the pingers see your IP and when you
+    # send), a remailer every hour. With false, run "yamn --refresh" on a
+    # schedule at a random time instead; it downloads regardless.
     fetch: true
     pubring: https://www.mixmin.net/yamn/pubring.mix
     mlist2: https://www.mixmin.net/yamn/mlist2.txt
