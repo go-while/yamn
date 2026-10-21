@@ -131,7 +131,8 @@ mail:
     # Headers an exit passes through besides its built-in list (To, Cc,
     # Subject, Reply-To, In-Reply-To, References, Newsgroups, Followup-To,
     # MIME-Version, X-No-Archive, Content-*). The client applies the same list
-    # to the messages it sends, unless --keep-headers is given.
+    # to the messages it sends, unless --keep-headers is given, and also
+    # removes From and Reply-To (see --keep-from and --keep-reply-to).
     allow_headers: []
     # Most recipients (To, Cc and Bcc, after the block list) an exit mails a
     # message to. A message with more is not delivered. 0 means no limit.

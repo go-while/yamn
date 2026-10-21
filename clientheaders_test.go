@@ -11,6 +11,7 @@ import (
 )
 
 const identifyingMessage = "From: John Smith <john@real.invalid>\n" +
+	"Reply-To: john@real.invalid\n" +
 	"To: alice@example.invalid\n" +
 	"Bcc: bob@example.invalid\n" +
 	"Subject: hello\n" +
@@ -27,8 +28,8 @@ func TestStripClientHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	removed := stripClientHeaders(msg.Header)
-	wantRemoved := []string{"Date", "From display name", "Message-Id", "User-Agent", "X-Mailer"}
+	removed := stripClientHeaders(msg.Header, false, false)
+	wantRemoved := []string{"Date", "From", "Message-Id", "Reply-To", "User-Agent", "X-Mailer"}
 	if !slices.Equal(removed, wantRemoved) {
 		t.Errorf("Removed: got %q, want %q", removed, wantRemoved)
 	}
@@ -37,25 +38,54 @@ func TestStripClientHeaders(t *testing.T) {
 		kept = append(kept, k)
 	}
 	slices.Sort(kept)
-	wantKept := []string{"Bcc", "Content-Type", "From", "Subject", "To"}
+	wantKept := []string{"Bcc", "Content-Type", "Subject", "To"}
 	if !slices.Equal(kept, wantKept) {
 		t.Errorf("Kept: got %q, want %q", kept, wantKept)
 	}
-	if from := msg.Header.Get("From"); from != "john@real.invalid" {
-		t.Errorf("From: got %q, want the bare address", from)
+}
+
+// TestStripClientHeadersKeepFrom checks that --keep-from and --keep-reply-to
+// each keep their header unchanged, and nothing else.
+func TestStripClientHeadersKeepFrom(t *testing.T) {
+	setupTestConfig(t)
+	for _, tc := range []struct {
+		keepFrom, keepReplyTo bool
+		from, replyTo         string
+	}{
+		{true, false, "John Smith <john@real.invalid>", ""},
+		{false, true, "", "john@real.invalid"},
+		{true, true, "John Smith <john@real.invalid>", "john@real.invalid"},
+	} {
+		msg, err := mail.ReadMessage(strings.NewReader(identifyingMessage))
+		if err != nil {
+			t.Fatal(err)
+		}
+		removed := stripClientHeaders(msg.Header, tc.keepFrom, tc.keepReplyTo)
+		if got := msg.Header.Get("From"); got != tc.from {
+			t.Errorf("keepFrom=%v: From got %q, want %q", tc.keepFrom, got, tc.from)
+		}
+		if got := msg.Header.Get("Reply-To"); got != tc.replyTo {
+			t.Errorf("keepReplyTo=%v: Reply-To got %q, want %q", tc.keepReplyTo, got, tc.replyTo)
+		}
+		if !slices.Contains(removed, "User-Agent") {
+			t.Errorf("User-Agent should still be removed, removed %q", removed)
+		}
 	}
 }
 
 // sendThroughExit runs the real client on a message and decodes the result
 // at the exit.  It returns the plaintext the exit pools for delivery and the
 // notices the client printed.
-func sendThroughExit(t *testing.T, message string, keepHeaders bool) (delivered []byte, notices string) {
+// setFlags, if not nil, sets the --keep-* flags.
+func sendThroughExit(t *testing.T, message string, setFlags func()) (delivered []byte, notices string) {
 	t.Helper()
 	_, exit := setupRoundTrip(t)
 	cfg.Urls.Fetch = false
 	flag.Chain = exit.address
 	flag.Copies = 1
-	flag.KeepHeaders = keepHeaders
+	if setFlags != nil {
+		setFlags()
+	}
 	out := new(bytes.Buffer)
 	oldOutput := clientOutput
 	clientOutput = out
@@ -78,20 +108,22 @@ func sendThroughExit(t *testing.T, message string, keepHeaders bool) (delivered 
 }
 
 func TestMixprepStripsHeaders(t *testing.T) {
-	delivered, notices := sendThroughExit(t, identifyingMessage, false)
+	delivered, notices := sendThroughExit(t, identifyingMessage, nil)
 	// The exit's pool file starts with its own Yamn-Pooled-Date header,
 	// followed by the client's message.
 	msg, err := mail.ReadMessage(bytes.NewReader(delivered))
 	if err != nil {
 		t.Fatalf("Delivered message doesn't parse: %s", err)
 	}
-	for _, h := range []string{"User-Agent", "X-Mailer", "Date", "Message-Id"} {
+	for _, h := range []string{"User-Agent", "X-Mailer", "Date", "Message-Id", "From", "Reply-To"} {
 		if v := msg.Header.Get(h); v != "" {
 			t.Errorf("%s should have been removed by the client, got %q", h, v)
 		}
 	}
+	if bytes.Contains(delivered, []byte("real.invalid")) || bytes.Contains(delivered, []byte("John Smith")) {
+		t.Errorf("The sender's name or address reached the exit:\n%s", delivered)
+	}
 	for h, want := range map[string]string{
-		"From":    "john@real.invalid",
 		"Bcc":     "bob@example.invalid",
 		"Subject": "hello",
 	} {
@@ -102,14 +134,37 @@ func TestMixprepStripsHeaders(t *testing.T) {
 	if !bytes.Contains(delivered, []byte("The body.")) {
 		t.Error("Body missing from the message the exit received")
 	}
-	if !strings.Contains(notices, "User-Agent") || !strings.Contains(notices, "--keep-headers") {
-		t.Errorf("The client should report what it removed, got %q", notices)
+	for _, want := range []string{"From", "Reply-To", "User-Agent", "--keep-headers", "--keep-from", "--keep-reply-to"} {
+		if !strings.Contains(notices, want) {
+			t.Errorf("The client's notice should mention %q, got %q", want, notices)
+		}
+	}
+}
+
+// TestMixprepKeepFrom sends a pseudonym From with --keep-from: the exit
+// receives it unchanged, while Reply-To and the other headers are removed.
+func TestMixprepKeepFrom(t *testing.T) {
+	delivered, notices := sendThroughExit(t, identifyingMessage, func() { flag.KeepFrom = true })
+	msg, err := mail.ReadMessage(bytes.NewReader(delivered))
+	if err != nil {
+		t.Fatalf("Delivered message doesn't parse: %s", err)
+	}
+	if got := msg.Header.Get("From"); got != "John Smith <john@real.invalid>" {
+		t.Errorf("From: got %q, want it unchanged", got)
+	}
+	for _, h := range []string{"Reply-To", "User-Agent"} {
+		if v := msg.Header.Get(h); v != "" {
+			t.Errorf("%s should have been removed, got %q", h, v)
+		}
+	}
+	if strings.Contains(notices, "From,") || !strings.Contains(notices, "Reply-To") {
+		t.Errorf("Notice should list Reply-To but not From, got %q", notices)
 	}
 }
 
 func TestMixprepKeepHeaders(t *testing.T) {
-	delivered, notices := sendThroughExit(t, identifyingMessage, true)
-	for _, h := range []string{"User-Agent: Leaky/1.0", "John Smith"} {
+	delivered, notices := sendThroughExit(t, identifyingMessage, func() { flag.KeepHeaders = true })
+	for _, h := range []string{"User-Agent: Leaky/1.0", "John Smith", "Reply-To: john@real.invalid"} {
 		if !bytes.Contains(delivered, []byte(h)) {
 			t.Errorf("%q should be kept with --keep-headers", h)
 		}

@@ -42,6 +42,10 @@ Keep all headers of the message (by default identifying headers such as
 User-Agent, Date and Message-ID are removed, and reported)
 yamn --mail --keep-headers msg.txt
 
+Sign with a pseudonym in From, and keep a Reply-To address (both are
+removed by default; most exits put their own address after the From name)
+yamn --mail --keep-from --keep-reply-to msg.txt
+
 Encrypt on one machine, send from another
 yamn --mail --stdout msg.txt > out.mbox      (first machine)
 yamn --import --send < out.mbox              (second machine)

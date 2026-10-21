@@ -144,6 +144,9 @@ type Flags struct {
 	NoDummy  bool
 	// Send identifying headers (User-Agent, Date, ...) instead of removing them
 	KeepHeaders bool
+	// Send the message's From or Reply-To instead of removing it
+	KeepFrom    bool
+	KeepReplyTo bool
 	Version     bool
 	MemInfo     bool
 }
@@ -237,6 +240,8 @@ func ParseFlags() *Flags {
 	flag.BoolVar(&f.NoDummy, "nodummy", false, "Don't send dummies")
 	// Keep identifying headers in client messages
 	flag.BoolVar(&f.KeepHeaders, "keep-headers", false, "Don't remove headers that could identify you")
+	flag.BoolVar(&f.KeepFrom, "keep-from", false, "Send the message's From header (removed by default)")
+	flag.BoolVar(&f.KeepReplyTo, "keep-reply-to", false, "Send the message's Reply-To header (removed by default)")
 	// Print Version
 	flag.BoolVar(&f.Version, "version", false, "Print version string")
 	flag.BoolVar(&f.Version, "V", false, "Print version string")
