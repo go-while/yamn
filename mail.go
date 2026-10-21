@@ -65,7 +65,8 @@ func badHeader(h mail.Header) string {
 }
 
 // headToAddy parses a header containing email addresses.  Every occurrence
-// of the header is read, not only the first.
+// of the header is read, not only the first.  Addresses that fail
+// validRecipient are skipped.
 func headToAddy(h mail.Header, header string) (addys []string) {
 	for _, v := range h[header] {
 		addyList, err := mail.ParseAddressList(v)
@@ -74,10 +75,53 @@ func headToAddy(h mail.Header, header string) (addys []string) {
 			continue
 		}
 		for _, addy := range addyList {
+			if !validRecipient(addy.Address) {
+				log.Warnf("Ignoring an invalid address in the %s header", header)
+				continue
+			}
 			addys = append(addys, addy.Address)
 		}
 	}
 	return
+}
+
+// validRecipient reports whether addy is a plain ASCII address that is safe
+// to pass to RCPT TO and to match against the block list: one "@", a
+// dot-atom local part and a host name.  mail.ParseAddress returns a quoted
+// local part without its quotes, so it could carry "<", ">" or spaces (and
+// with them ESMTP parameters) into the RCPT command.  Source routes ("%",
+// "!"), address literals and a trailing dot are refused too, as they would
+// get past the destination block list.
+func validRecipient(addy string) bool {
+	local, domain, ok := strings.Cut(addy, "@")
+	if !ok || len(local) > 64 || len(addy) > 254 {
+		return false
+	}
+	for _, atom := range strings.Split(local, ".") {
+		if atom == "" || strings.IndexFunc(atom, func(c rune) bool { return !isAtext(c) }) >= 0 {
+			return false
+		}
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		if strings.IndexFunc(label, func(c rune) bool { return !isAlnum(c) && c != '-' }) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// isAlnum reports whether c is an ASCII letter or digit.
+func isAlnum(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
+// isAtext reports whether c may appear in a dot-atom (RFC 5322 atext),
+// leaving out "%" and "!", which some MTAs treat as routing.
+func isAtext(c rune) bool {
+	return isAlnum(c) || strings.ContainsRune("#$&'*+-/=?^_`{|}~", c)
 }
 
 // exitHeaders lists the headers passed through from a pooled message to the
