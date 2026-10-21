@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"net/mail"
@@ -171,24 +172,66 @@ func splitEmailAddress(addy string) (e emailAddress, err error) {
 	return
 }
 
-// mxLookup returns the responsible MX for a given email address
+// errPermanent marks a delivery failure that retrying won't fix: the
+// recipient's server rejected the message with a 5xx reply, or the domain
+// doesn't accept mail.  Such pool files are deleted instead of being retried
+// until pool.max_age; there's nobody to bounce them to.
+var errPermanent = errors.New("permanent delivery failure")
+
+// isPermanentSMTP reports whether err is a 5xx SMTP reply.
+func isPermanentSMTP(err error) bool {
+	var tpErr *textproto.Error
+	return errors.As(err, &tpErr) && tpErr.Code >= 500 && tpErr.Code <= 599
+}
+
+// isNotFound reports whether err is a DNS lookup that found no records
+// (NXDOMAIN, or no records of that type).
+func isNotFound(err error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
+}
+
+// DNS lookups for direct MX delivery.  Tests replace them.
+var (
+	lookupMX   = net.LookupMX
+	lookupHost = net.LookupHost
+)
+
+// mxLookup returns the responsible MX for a given email address.  An error
+// marked errPermanent means the domain doesn't accept mail; other errors
+// (SERVFAIL, timeouts) are temporary.
 func mxLookup(email string) (relay string, err error) {
 	emailParts, err := splitEmailAddress(email)
 	if err != nil {
 		// Failed to ascertain domain name from email address
+		err = fmt.Errorf("%w: %w", errPermanent, err)
 		return
 	}
-	mxRecords, err := net.LookupMX(emailParts.domain)
+	domain := emailParts.domain
+	mxRecords, err := lookupMX(domain)
 	if err != nil {
-		relay = emailParts.domain
-		log.Tracef(
-			"DNS MX lookup failed for %s.  Using hostname.",
-			emailParts.domain,
-		)
-		err = nil
-		return
+		if !isNotFound(err) {
+			err = fmt.Errorf("MX lookup for %s failed: %w", domain, err)
+			return
+		}
+		// No MX records: the domain's own address is its implicit MX
+		// (RFC 5321, 5.1), if it has one.
+		if _, err = lookupHost(domain); err != nil {
+			if isNotFound(err) {
+				err = fmt.Errorf("%w: %s has no MX or address records", errPermanent, domain)
+			} else {
+				err = fmt.Errorf("address lookup for %s failed: %w", domain, err)
+			}
+			return
+		}
+		log.Tracef("No MX records for %s. Using hostname.", domain)
+		return domain, nil
 	}
 	for _, mx := range mxRecords {
+		if mx.Host == "." {
+			// A null MX (RFC 7505): the domain accepts no mail.
+			continue
+		}
 		if !cfg.Mail.OnionRelay {
 			// We don't want no onions!
 			if strings.HasSuffix(mx.Host, ".onion.") {
@@ -200,12 +243,8 @@ func mxLookup(email string) (relay string, err error) {
 		break
 	}
 	if relay == "" {
-		// No suitable relays found, use the hostname.
-		log.Infof(
-			"No valid MX records found for %s. Using hostname.",
-			emailParts.domain,
-		)
-		relay = emailParts.domain
+		// Having MX records rules out the implicit MX.
+		err = fmt.Errorf("%w: no usable MX for %s (null MX, or .onion only)", errPermanent, domain)
 		return
 	}
 	log.Tracef(
@@ -336,9 +375,12 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 		return
 	}
 	sendTo = allowed
-	// There is an assumption here that all errors from mailBytes should not
-	// delete pool files (delFlag is false by default).
+	// Temporary errors keep the file for the next pool run.  Permanent
+	// ones delete it: retrying won't help.
 	err = mailBytes(assemble(*msg), sendTo)
+	if errors.Is(err, errPermanent) {
+		delFlag = true
+	}
 	return
 }
 
@@ -467,23 +509,29 @@ func smtpRelay(payload []byte, sendTo []string) (err error) {
 	if cfg.Mail.MXRelay && len(sendTo) == 1 {
 		log.Tracef("DNS lookup of MX record for %s.", sendTo[0])
 		mx, err := mxLookup(sendTo[0])
-		if err == nil {
-			log.Tracef(
-				"Doing direct relay for %s to %s:25.",
-				sendTo[0],
-				mx,
-			)
-			relay = mx
-			port = "25"
-			directMX = true
+		if err != nil {
+			log.Warn(err)
+			return err
 		}
+		log.Tracef(
+			"Doing direct relay for %s to %s:25.",
+			sendTo[0],
+			mx,
+		)
+		relay = mx
+		port = "25"
+		directMX = true
 	}
 	return smtpSend(relay, port, directMX, payload, sendTo)
 }
 
 // smtpSend delivers payload to sendTo through the SMTP server at relay:port.
 // directMX is true when relay is the recipient's MX rather than the
-// configured relay.
+// configured relay.  Recipients rejected with a 5xx reply are skipped, and
+// the message goes to the others.  The error is marked errPermanent if every
+// recipient, or the message itself, got a 5xx reply.  Other failures (4xx
+// replies, network and TLS errors) are temporary and nothing is delivered,
+// so the message can be sent again later.
 func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string) (err error) {
 	serverAddr := net.JoinHostPort(relay, port)
 
@@ -560,20 +608,37 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 	} else {
 		sender = cfg.Remailer.Address
 	}
+	// A 5xx reply to MAIL FROM usually means the sender address or the relay
+	// is misconfigured, so it's not treated as permanent.
 	if err = client.Mail(sender); err != nil {
 		log.Warnf("SMTP Error: Server=%s, Error=%s", serverAddr, err)
 		return
 	}
 
+	accepted := 0
 	for _, addr := range sendTo {
 		if err = client.Rcpt(addr); err != nil {
+			if isPermanentSMTP(err) {
+				log.Infof("Recipient rejected: Server=%s, Error=%s", serverAddr, err)
+				continue
+			}
 			log.Warnf("Error: %s\n", err)
 			return
 		}
+		accepted++
 	}
+	if accepted == 0 {
+		err = fmt.Errorf("%w: every recipient was rejected: %w", errPermanent, err)
+		log.Warn(err)
+		return
+	}
+	err = nil
 
 	w, err := client.Data()
 	if err != nil {
+		if isPermanentSMTP(err) {
+			err = fmt.Errorf("%w: %w", errPermanent, err)
+		}
 		log.Warnf("Error: %s\n", err)
 		return
 	}
@@ -587,6 +652,9 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 
 	err = w.Close()
 	if err != nil {
+		if isPermanentSMTP(err) {
+			err = fmt.Errorf("%w: message rejected: %w", errPermanent, err)
+		}
 		log.Warnf("Error: %s\n", err)
 		return
 

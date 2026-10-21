@@ -94,7 +94,10 @@ mail:
     # SMTP relay and port
     smtp_relay: fleegle.mixmin.net
     smtp_port: "587"
-    # Deliver a message with a single recipient directly to that recipient's MX
+    # Deliver a message with a single recipient directly to that recipient's
+    # MX. A domain without MX records gets the mail at its own address; one
+    # with a null MX, or that doesn't exist, can't receive mail. If DNS fails,
+    # the message stays in the pool.
     mx_relay: true
     # Allow .onion hosts as MX
     onion_relay: false
@@ -149,7 +152,10 @@ pool:
     # Seconds between pool runs in daemon mode (at least 120)
     loop: 300
     # Delete outbound messages older than this many days; also how long
-    # rejected incoming mail is kept
+    # rejected incoming mail is kept. Messages are retried until then after
+    # a temporary failure (4xx reply, network or DNS error). A permanent
+    # (5xx) rejection deletes the message at once; recipients rejected with
+    # 5xx are skipped and the others still get it.
     max_age: 28
 
 remailer:
