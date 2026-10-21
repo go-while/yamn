@@ -61,6 +61,9 @@ From.  It reports what it removed.
 .B "-l, --chain=\fIrem1,rem2,rem3,..."
 Use the defined chain to route the message through the Yamn network.  Random
 nodes can be selected with asterisks. E.g. --chain="*,*,*".
+A random node is never a remailer used within
+.B stats.distance
+hops of it, including the named ones.
 If multiple copies are specified, all copies must share a common exit remailer.
 .TP
 .B "-m, --mail"
