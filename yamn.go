@@ -16,7 +16,15 @@ import (
 )
 
 const (
-	version        string = "0.2.7"
+	// upstreamVersion is the crooks/yamn release this fork is based on.  It
+	// is the version in every encrypted mail (Subject and Remailer-Type), so
+	// mails sent with this fork look like those of upstream yamn and don't
+	// single out its users.
+	upstreamVersion string = "0.2.7"
+	// version identifies this build: the upstream version plus "+gw<N>",
+	// the N-th release of the go-while fork on top of it.  It's shown by
+	// --version, in a remailer's key header and in its remailer-conf reply.
+	version        string = upstreamVersion + "+gw1"
 	dayLength      int    = 24 * 60 * 60 // Day in seconds
 	maxFragLength         = 17910
 	maxCopies             = 5

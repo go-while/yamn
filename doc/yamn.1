@@ -1,4 +1,4 @@
-.TH yamn 1 "20 Oct 2026" "version 0.2.7"
+.TH yamn 1 "21 Oct 2026" "version 0.2.7+gw1"
 
 .SH NAME
 yamn - An anonymous remailer application
@@ -128,7 +128,11 @@ Specify a recipient for the message.  If this option isn't defined, the recipien
 is expected to be included in the message itself.
 .TP
 .B "-V, --version"
-Print the version and exit.
+Print the version and exit.  Versions of this fork are the upstream
+(crooks/yamn) release they are based on plus
+.RI +gw N ,
+e.g. 0.2.7+gw1.  Encrypted mails carry only the upstream version, so
+they don't tell which fork sent them.
 .SH CONFIGURATION
 yamn reads a YAML configuration file.  It uses the first one it finds of:
 .IP 1. 4

@@ -265,7 +265,7 @@ func writeInternalHeader(w io.Writer) {
 func writeMailHeaders(w io.Writer, sendTo string) {
 	w.Write([]byte(fmt.Sprintf("To: %s\n", sendTo)))
 	w.Write([]byte(fmt.Sprintf("From: %s\n", cfg.Remailer.Address)))
-	w.Write([]byte(fmt.Sprintf("Subject: yamn-%s\n", version)))
+	w.Write([]byte(fmt.Sprintf("Subject: yamn-%s\n", upstreamVersion)))
 	w.Write([]byte("\n"))
 }
 
@@ -286,7 +286,7 @@ func armor(w io.Writer, payload []byte) {
 		panic(err)
 	}
 	w.Write([]byte("::\n"))
-	w.Write([]byte(fmt.Sprintf("Remailer-Type: yamn-%s\n\n", version)))
+	w.Write([]byte(fmt.Sprintf("Remailer-Type: yamn-%s\n\n", upstreamVersion)))
 	w.Write([]byte("-----BEGIN REMAILER MESSAGE-----\n"))
 	// Write message length
 	w.Write([]byte(strconv.Itoa(len(payload)) + "\n"))
