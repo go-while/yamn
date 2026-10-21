@@ -382,7 +382,9 @@ not part of the repository yet and come with the fixes.
 - **Found:** review 2, M-1 (plus M-16: matching is exact only). Tests:
   `TestReviewRcptInjectionBypassesDestBlock`, `TestReviewDestBlockForms`.
   How real MTAs parse it is untested.
-- **Status:** open.
+- **Status:** fixed in `9d0a28c` (branch `fix/24-rcpt-address`, #35). Tests:
+  `TestMailPoolFileQuotedRecipient`, `TestRemailerFooQuotedFrom`,
+  `TestValidRecipient`.
 
 ### Y-25: A bare CR reaches the SMTP wire
 
