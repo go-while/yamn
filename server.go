@@ -769,7 +769,7 @@ func remailerFoo(subject, from string) (err error) {
 	m := quickmail.NewMessage()
 	m.Set("From", cfg.Remailer.Address)
 	m.Set("To", sender)
-	m.Set("Date", time.Now().Format(rfc5322date))
+	m.Set("Date", time.Now().UTC().Format(rfc5322date))
 	m.Set("Message-ID", messageID())
 	m.Set("MIME-Version", "1.0")
 	m.Set("Content-Type", "text/plain; charset=UTF-8")

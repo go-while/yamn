@@ -475,7 +475,7 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 	delete(msg.Header, "Yamn-Pooled-Date")
 
 	// Add some required headers to the message.
-	msg.Header["Date"] = []string{time.Now().Format(rfc5322date)}
+	msg.Header["Date"] = []string{time.Now().UTC().Format(rfc5322date)}
 	msg.Header["Message-Id"] = []string{messageID()}
 	msg.Header["From"] = parseFrom(msg.Header)
 	sendTo := headToAddy(msg.Header, "To")

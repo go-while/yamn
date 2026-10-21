@@ -72,9 +72,10 @@ func readDir(path, prefix string) (files []string, err error) {
 }
 
 // messageID returns an RFC compliant Message-ID for use in message
-// construction.
+// construction.  Its time is UTC, like the Date yamn sets, so neither shows
+// the remailer's time zone.
 func messageID() (datestr string) {
-	dateComponent := time.Now().Format("20060102.150405")
+	dateComponent := time.Now().UTC().Format("20060102.150405")
 	randomComponent := hex.EncodeToString(crandom.Randbytes(4))
 	datestr = fmt.Sprintf(
 		"<%s.%s@%s>",
