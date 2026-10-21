@@ -64,8 +64,9 @@ type pingerStats struct {
 //
 // A key is only used if at least quorum pingers publish it (the same
 // address, name, keyid and public key).  If fewer pingers have a usable
-// keyring, all of them must agree.  So a single pinger that is wrong,
-// stale or compromised can neither add a key nor replace one.
+// keyring, nothing is merged and the current keyring is kept.  So a single
+// pinger that is wrong, stale or compromised can neither add a key nor
+// replace one.
 //
 // Stats come from the pingers whose mlist2.txt is no more than staleHours
 // old (from all of them if none is that fresh).  Each remailer gets the
@@ -79,7 +80,7 @@ func MergePingers(pingers []PingerFiles, quorum, staleHours int, useExpired bool
 		quorum = 1
 	}
 	stats := mergeStatsSources(pingers, staleHours, now, &res)
-	keys := mergeKeys(pingers, quorum, useExpired, now, stats, &res)
+	keys := mergeKeys(pingers, quorum, useExpired, now, &res)
 	if keys == nil {
 		return
 	}
@@ -115,7 +116,7 @@ func mergeStatsSources(pingers []PingerFiles, staleHours int, now time.Time, res
 		}
 		all = append(all, ps)
 	}
-	// Newest first, so ties and options prefer the freshest pinger.
+	// Newest first, so options come from the freshest pinger.
 	slices.SortStableFunc(all, func(a, b pingerStats) int {
 		return b.generated.Compare(a.generated)
 	})
@@ -141,7 +142,7 @@ func mergeStatsSources(pingers []PingerFiles, staleHours int, now time.Time, res
 
 // mergeKeys returns the keys that reach the quorum, one per remailer, or
 // nil if no pinger has a usable keyring.
-func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time, stats []pingerStats, res *MergeResult) []Remailer {
+func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time, res *MergeResult) []Remailer {
 	// votes[address][key] collects the pingers publishing each key.
 	votes := make(map[string]map[string]*keyVote)
 	usable := 0
@@ -186,13 +187,16 @@ func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time
 		res.warn("no pinger has a usable keyring; keeping the current one")
 		return nil
 	}
-	res.Quorum = min(quorum, usable)
-	if res.Quorum < quorum {
+	// Accepting keys from fewer pingers would let one decide, e.g. on a
+	// first run while the others' files are missing.
+	if usable < quorum {
 		res.warn(
-			"only %d pinger(s) have a usable keyring; accepting keys published by %d instead of %d",
-			usable, res.Quorum, quorum,
+			"only %d of %d pinger(s) have a usable keyring, key_quorum is %d; keeping the current one",
+			usable, len(pingers), quorum,
 		)
+		return nil
 	}
+	res.Quorum = quorum
 
 	// Pick one key per address.
 	byName := make(map[string][]*keyVote)
@@ -202,7 +206,7 @@ func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time
 		var summary []string
 		for _, id := range sortedKeys(candidates) {
 			v := candidates[id]
-			v.rem = pickHeader(v, stats)
+			v.rem = pickHeader(v)
 			summary = append(summary, fmt.Sprintf(
 				"%s %x (%s)", v.rem.name, v.rem.Keyid[:4], strings.Join(v.pingers, ", "),
 			))
@@ -263,33 +267,45 @@ func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time
 }
 
 // pickHeader returns the vote's key with the header fields (version,
-// capabilities, dates) published by most of its pingers.  On a tie, the
-// pinger with the newest stats wins, then the first pinger listed.
-func pickHeader(v *keyVote, stats []pingerStats) Remailer {
-	rank := func(pinger string) int {
-		for i, ps := range stats {
-			if ps.name == pinger {
-				return i
+// capabilities, dates) published by most of its pingers, field by field.
+// A tie is decided conservatively, whichever pinger published what: a
+// middleman rather than an exit, the later valid-from and the earlier
+// valid-until date, the lower version.
+func pickHeader(v *keyVote) Remailer {
+	// votes[field][value] counts the pingers publishing value.
+	votes := make([]map[string]int, 7)
+	for i := range votes {
+		votes[i] = make(map[string]int)
+	}
+	for h, ps := range v.headers {
+		for i, f := range strings.Split(h, " ") {
+			votes[i][f] += len(ps)
+		}
+	}
+	// pick returns the value with the most votes; better reports whether
+	// a is preferred to b on a tie.
+	pick := func(field int, better func(a, b string) bool) string {
+		best, bestCount := "", 0
+		for _, val := range sortedKeys(votes[field]) {
+			n := votes[field][val]
+			if n > bestCount || (n == bestCount && better(val, best)) {
+				best, bestCount = val, n
 			}
 		}
-		return len(stats)
+		return best
 	}
-	best, bestCount, bestRank := "", 0, 0
-	for _, h := range sortedKeys(v.headers) {
-		ps := v.headers[h]
-		r := len(stats) + 1
-		for _, p := range ps {
-			r = min(r, rank(p))
-		}
-		if len(ps) > bestCount || (len(ps) == bestCount && r < bestRank) {
-			best, bestCount, bestRank = h, len(ps), r
-		}
-	}
+	lower := func(a, b string) bool { return a < b }
 	rem := v.rem
-	f := strings.Split(best, " ")
-	rem.version, rem.caps = f[3], f[4]
-	rem.from, _ = time.Parse(date_format, f[5])
-	rem.until, _ = time.Parse(date_format, f[6])
+	rem.version = pick(3, lower)
+	rem.caps = pick(4, func(a, b string) bool {
+		if am, bm := strings.Contains(a, "M"), strings.Contains(b, "M"); am != bm {
+			return am
+		}
+		return a < b
+	})
+	// Dates are YYYY-MM-DD, so they compare as strings.
+	rem.from, _ = time.Parse(date_format, pick(5, func(a, b string) bool { return a > b }))
+	rem.until, _ = time.Parse(date_format, pick(6, lower))
 	return rem
 }
 

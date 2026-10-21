@@ -20,7 +20,7 @@ mail:
 #        - name: victor
 #          pubring: https://echolot.virebent.art/pubring.mix
 #          mlist2: https://echolot.virebent.art/mlist2.txt
-#        # Only available over plain HTTP
+#        # Only available over plain HTTP (yamn warns about it)
 #        - name: frell
 #          pubring: http://echolot.theremailer.net/yamn/pubring.mix
 #          mlist2: http://echolot.theremailer.net/yamn/mlist2.txt

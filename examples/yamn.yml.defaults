@@ -70,7 +70,7 @@ urls:
     # stats.stale_hours old. See yamn.yml.client for an example.
     pingers: []
     # How many pingers must publish a key before it's used. With fewer
-    # working pingers, all of them must agree.
+    # usable keyrings, the current keyring is kept; 1 trusts any one pinger.
     key_quorum: 2
 
 # How mail is sent. Clients and remailers both need this to work.

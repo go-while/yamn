@@ -183,21 +183,29 @@ func TestMergeRotation(t *testing.T) {
 	checkKeys(t, res, alphaNew, beta)
 }
 
-// TestMergeQuorumShrinks checks that with fewer usable keyrings than the
-// quorum, all of them must agree, and that it's reported.
-func TestMergeQuorumShrinks(t *testing.T) {
-	res := merge(2,
-		PingerFiles{Name: "a", Pubring: testPubring(alpha, beta)},
-		PingerFiles{Name: "b", Pubring: []byte("<html>not a keyring</html>")},
-		PingerFiles{Name: "c"},
-	)
+// TestMergeQuorumNotLowered checks that with fewer usable keyrings than the
+// quorum nothing is merged (the current keyring is kept), so one pinger
+// can't decide the keys, e.g. on a first run.  A lower key_quorum is the
+// way to accept fewer.
+func TestMergeQuorumNotLowered(t *testing.T) {
+	pingers := []PingerFiles{
+		{Name: "a", Pubring: testPubring(alpha, beta), Stats: testStats(time.Hour, "alpha 10 100")},
+		{Name: "b", Pubring: []byte("<html>not a keyring</html>")},
+		{Name: "c"},
+	}
+	res := merge(2, pingers...)
+	if res.Pubring != nil || res.Stats != nil {
+		t.Errorf("merged with 1 usable keyring and key_quorum 2:\n%s", res.Pubring)
+	}
+	w := strings.Join(res.Warnings, "\n")
+	if !strings.Contains(w, "b: keyring unusable") ||
+		!strings.Contains(w, "only 1 of 3 pinger(s) have a usable keyring, key_quorum is 2; keeping the current one") {
+		t.Errorf("missing warnings: %v", res.Warnings)
+	}
+	res = merge(1, pingers...)
 	checkKeys(t, res, alpha, beta)
 	if res.Quorum != 1 {
 		t.Errorf("quorum %d, want 1", res.Quorum)
-	}
-	w := strings.Join(res.Warnings, "\n")
-	if !strings.Contains(w, "b: keyring unusable") || !strings.Contains(w, "only 1 pinger(s)") {
-		t.Errorf("missing warnings: %v", res.Warnings)
 	}
 
 	res = merge(2, PingerFiles{Name: "a"}, PingerFiles{Name: "b", Pubring: []byte("junk")})
@@ -250,6 +258,37 @@ func TestMergeHeaderMajority(t *testing.T) {
 		PingerFiles{Name: "c", Pubring: testPubring(alpha)},
 	)
 	if !bytes.Contains(res.Pubring, []byte(" 4:0.2.7 E ")) {
+		t.Errorf("majority header not used:\n%s", res.Pubring)
+	}
+}
+
+// TestMergeHeaderTie checks that when the pingers publishing a key are
+// split evenly on its header, each field is decided conservatively, not by
+// the pinger with the newest (here future-dated) stats.
+func TestMergeHeaderTie(t *testing.T) {
+	honest := alpha
+	honest.caps, honest.version = "M", "4:0.2.7"
+	lying := alpha
+	lying.caps, lying.version, lying.from, lying.to = "E", "4:0.2.8", "2026-10-10", "2026-12-31"
+	res := merge(2,
+		PingerFiles{Name: "honest", Pubring: testPubring(honest), Stats: testStats(time.Hour, "alpha 10 100")},
+		PingerFiles{Name: "evil", Pubring: testPubring(lying), Stats: testStats(-1000*time.Hour, "alpha 10 100")},
+	)
+	rems, err := readPubring(bytes.NewReader(res.Pubring), mergeNow, false, func(string, ...any) {})
+	if err != nil || len(rems) != 1 {
+		t.Fatalf("keys %v, %v; warnings %v", rems, err, res.Warnings)
+	}
+	r := rems[0]
+	if got := r.header(); got != "alpha alpha@example.org "+alpha.keyid()+" 4:0.2.7 M 2026-10-15 2026-10-29" {
+		t.Errorf("merged header %q, want the middleman, the later from and the earlier until", got)
+	}
+	// A majority still decides.
+	res = merge(2,
+		PingerFiles{Name: "a", Pubring: testPubring(lying)},
+		PingerFiles{Name: "b", Pubring: testPubring(lying)},
+		PingerFiles{Name: "c", Pubring: testPubring(honest)},
+	)
+	if !bytes.Contains(res.Pubring, []byte(" 4:0.2.8 E 2026-10-10 2026-12-31")) {
 		t.Errorf("majority header not used:\n%s", res.Pubring)
 	}
 }
