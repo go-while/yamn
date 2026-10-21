@@ -5,7 +5,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/Masterminds/log-go"
 	"github.com/crooks/yamn/crandom"
@@ -56,8 +55,8 @@ func makeChain(inChain []string) (outChain []string, err error) {
 	}
 	var candidates []string // Candidate remailers for each hop
 	if len(inChain) > maxChainLength {
-		fmt.Fprintf(os.Stderr, "%d hops exceeds maximum of %d\n", len(inChain), maxChainLength)
-		os.Exit(1)
+		err = fmt.Errorf("%d hops exceeds maximum of %d", len(inChain), maxChainLength)
+		return
 	}
 	// If dist is greater than the actual chain length, all hops will be unique.
 	if dist > len(inChain) {
@@ -118,10 +117,8 @@ func makeChain(inChain []string) (outChain []string, err error) {
 						len(candidates),
 					)
 				}
-			} else if len(candidates) == 0 {
-				// Insufficient remailers meet criteria and we're a client, so die.
-				os.Exit(1)
 			}
+			// A client gets an error here, and doesn't relax the criteria.
 			if len(candidates) == 0 {
 				err = errors.New("no remailers available to build random chain link")
 				return

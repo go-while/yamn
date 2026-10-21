@@ -133,6 +133,16 @@ Print the version and exit.  Versions of this fork are the upstream
 .RI +gw N ,
 e.g. 0.2.7+gw1.  Encrypted mails carry only the upstream version, so
 they don't tell which fork sent them.
+.SH EXIT STATUS
+In client mode
+.RB ( -m ),
+yamn exits with 0 when the whole message was pooled (or written with
+.BR --stdout ),
+and with 1 when it was refused: for example an unknown remailer or a chain
+that can't be built, no To, Cc or Bcc address, or more than two arguments.
+Every chunk and copy is encrypted before the first one is pooled, so after
+an error nothing of the message is sent.  A dummy message that can't be
+built only gives a warning.
 .SH CONFIGURATION
 yamn reads a YAML configuration file.  It uses the first one it finds of:
 .IP 1. 4
