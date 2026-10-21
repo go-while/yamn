@@ -52,3 +52,11 @@ Hand mail to a remailer from an MTA, or an mbox written by --stdout
 yamn --read-mail < message
 
 See doc/yamn.1 for all options, and ISSUES.md for known issues.
+
+Versions:-
+This fork (github.com/go-while/yamn) is based on crooks/yamn.  Its
+versions are the upstream release plus +gwN, the fork's N-th release on
+top of it: 0.2.7+gw1 is the first one based on 0.2.7.  yamn --version, a
+remailer's published key and its remailer-conf reply show the full
+version.  Encrypted mails only carry the upstream version (yamn-0.2.7),
+so mails sent with this fork look the same as mails sent with upstream.
