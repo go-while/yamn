@@ -253,10 +253,10 @@ func nagOperator() {
 	}
 	if pipeReadsHeaders(cfg.Mail.Pipe) {
 		log.Warnf(
-			"mail.pipe %q reads the recipients from the headers (-t). "+
-				"Bcc recipients get nothing and, depending on the MTA, "+
-				"blocked recipients still get the mail or allowed ones "+
-				"don't. Remove the -t.",
+			"mail.pipe %q reads the recipients from the headers (-t), "+
+				"so yamn can't pass them: the block list doesn't apply "+
+				"and Bcc recipients get nothing. Remove the -t; yamn "+
+				"then passes the recipients as arguments.",
 			cfg.Mail.Pipe,
 		)
 	}

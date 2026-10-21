@@ -60,6 +60,32 @@ func TestMailPoolFilePipeRecipients(t *testing.T) {
 	}
 }
 
+// TestMailPoolFilePipeDashT checks that a pipe command with -t gets no
+// recipient arguments, as before, since MTAs treat arguments given with -t
+// differently (Exim and Sendmail remove them from the recipients).
+func TestMailPoolFilePipeDashT(t *testing.T) {
+	setupTestConfig(t)
+	cfg.Files.Pooldir = t.TempDir()
+	script, argsFile, inFile := fakeSendmail(t)
+	cfg.Mail.Pipe = script + " -f pinger@example.invalid -t"
+	file := writePoolMessage(t, "To: carol@example.invalid\n")
+	if _, err := mailPoolFile(file); err != nil {
+		t.Fatalf("mailPoolFile failed: %s", err)
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Fields(string(args))
+	want := []string{"-f", "pinger@example.invalid", "-t"}
+	if !slices.Equal(got, want) {
+		t.Errorf("arguments %q, want %q", got, want)
+	}
+	if in, _ := os.ReadFile(inFile); !strings.Contains(string(in), "To: carol@example.invalid") {
+		t.Errorf("message not piped: %q", in)
+	}
+}
+
 func TestPipeReadsHeaders(t *testing.T) {
 	for cmd, want := range map[string]bool{
 		"/usr/sbin/sendmail -t":         true,

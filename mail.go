@@ -404,14 +404,23 @@ func pipeReadsHeaders(execCmd string) bool {
 // The recipients are added as arguments after "--", so they can't be read
 // as options.  They are the ones left after the block list, and include
 // Bcc, which is no longer in the headers.
+//
+// A command with -t gets no recipient arguments, as before: it takes them
+// from the headers, and sendmail-like MTAs differ in what they do with
+// arguments given together with -t (Exim and Sendmail remove them from the
+// recipients).  Setups shared with upstream yamn, which always needs -t,
+// keep working that way; nagOperator warns that the block list and Bcc
+// don't apply then.
 func execSend(payload []byte, execCmd string, sendTo []string) (err error) {
 	sendmail := new(exec.Cmd)
 	sendmail.Args = strings.Fields(execCmd)
 	sendmail.Path = sendmail.Args[0]
-	if sendmail.Args[len(sendmail.Args)-1] != "--" {
-		sendmail.Args = append(sendmail.Args, "--")
+	if !pipeReadsHeaders(execCmd) {
+		if sendmail.Args[len(sendmail.Args)-1] != "--" {
+			sendmail.Args = append(sendmail.Args, "--")
+		}
+		sendmail.Args = append(sendmail.Args, sendTo...)
 	}
-	sendmail.Args = append(sendmail.Args, sendTo...)
 
 	stdin, err := sendmail.StdinPipe()
 	if err != nil {
