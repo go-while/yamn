@@ -420,7 +420,9 @@ not part of the repository yet and come with the fixes.
   - Stop documenting `-t`, and warn in `nagOperator` when the pipe command
     contains it.
 - **Found:** review 2, M-3. Test: `TestReviewPipeIgnoresBlockListAndBcc`.
-- **Status:** open.
+- **Status:** fixed in `1be63d6`, `ba4e52e` (branch `fix/26-pipe-recipients`,
+  #37). Tests: `TestMailPoolFilePipeDashT`, `TestMailPoolFilePipeRecipients`,
+  `TestPipeReadsHeaders`.
 
 ### Y-27: A message can stay in the pool forever
 
