@@ -251,6 +251,15 @@ func nagOperator() {
 			cfg.Mail.MessageDomain,
 		)
 	}
+	if pipeReadsHeaders(cfg.Mail.Pipe) {
+		log.Warnf(
+			"mail.pipe %q reads the recipients from the headers (-t). "+
+				"Bcc recipients get nothing and, depending on the MTA, "+
+				"blocked recipients still get the mail or allowed ones "+
+				"don't. Remove the -t.",
+			cfg.Mail.Pipe,
+		)
+	}
 	// Complain about excessively small loop values.
 	if cfg.Pool.Loop < 60 {
 		log.Warnf(

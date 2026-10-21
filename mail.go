@@ -362,7 +362,7 @@ func mailBytes(payload []byte, sendTo []string) (err error) {
 			return
 		}
 	} else if cfg.Mail.Pipe != "" {
-		err = execSend(payload, cfg.Mail.Pipe)
+		err = execSend(payload, cfg.Mail.Pipe, sendTo)
 		if err != nil {
 			log.Warn("Email pipe failed")
 			return
@@ -383,11 +383,35 @@ func mailBytes(payload []byte, sendTo []string) (err error) {
 	return
 }
 
-// Pipe mail to an external command (E.g. sendmail -t)
-func execSend(payload []byte, execCmd string) (err error) {
+// pipeReadsHeaders reports whether the pipe command has sendmail's -t
+// option (alone or as in -ti or -it), which takes the recipients from the
+// headers rather than from execSend's arguments.
+func pipeReadsHeaders(execCmd string) bool {
+	fields := strings.Fields(execCmd)
+	for i := 1; i < len(fields); i++ {
+		f := fields[i]
+		if f == "--" {
+			break
+		}
+		if len(f) > 1 && f[0] == '-' && strings.Trim(f[1:], "it") == "" && strings.Contains(f, "t") {
+			return true
+		}
+	}
+	return false
+}
+
+// execSend pipes mail to an external command (e.g. "/usr/sbin/sendmail -i").
+// The recipients are added as arguments after "--", so they can't be read
+// as options.  They are the ones left after the block list, and include
+// Bcc, which is no longer in the headers.
+func execSend(payload []byte, execCmd string, sendTo []string) (err error) {
 	sendmail := new(exec.Cmd)
 	sendmail.Args = strings.Fields(execCmd)
 	sendmail.Path = sendmail.Args[0]
+	if sendmail.Args[len(sendmail.Args)-1] != "--" {
+		sendmail.Args = append(sendmail.Args, "--")
+	}
+	sendmail.Args = append(sendmail.Args, sendTo...)
 
 	stdin, err := sendmail.StdinPipe()
 	if err != nil {
