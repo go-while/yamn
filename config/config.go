@@ -298,19 +298,20 @@ func (f *Flags) newConfig() *Config {
 	c.General.Loglevel = "warn"
 	c.General.LogToFile = false    // By default, log to stdout/stderr
 	c.General.LogToJournal = false // Don't log to journal by default
-	// Config items in the Files section default to a path defined by the --dir flag
-	c.Files.Pubkey = path.Join(f.Dir, "key.txt")
-	c.Files.Pubring = path.Join(f.Dir, "pubring.mix")
-	c.Files.Secring = path.Join(f.Dir, "secring.mix")
-	c.Files.Mlist2 = path.Join(f.Dir, "mlist2.txt")
-	c.Files.Adminkey = path.Join(f.Dir, "adminkey.txt")
-	c.Files.Help = path.Join(f.Dir, "help.txt")
-	c.Files.Pooldir = path.Join(f.Dir, "pool")
-	c.Files.Maildir = path.Join(f.Dir, "Maildir")
-	c.Files.IDlog = path.Join(f.Dir, "idlog")
-	c.Files.ChunkDB = path.Join(f.Dir, "chunkdb")
-	c.Files.Logfile = path.Join(f.Dir, "yamn.log")
-	c.Files.DestBlock = path.Join(f.Dir, "dest.blk")
+	// Files are named relative to the --dir directory; ParseConfig adds it
+	// (see resolvePaths).
+	c.Files.Pubkey = "key.txt"
+	c.Files.Pubring = "pubring.mix"
+	c.Files.Secring = "secring.mix"
+	c.Files.Mlist2 = "mlist2.txt"
+	c.Files.Adminkey = "adminkey.txt"
+	c.Files.Help = "help.txt"
+	c.Files.Pooldir = "pool"
+	c.Files.Maildir = "Maildir"
+	c.Files.IDlog = "idlog"
+	c.Files.ChunkDB = "chunkdb"
+	c.Files.Logfile = "yamn.log"
+	c.Files.DestBlock = "dest.blk"
 	c.Urls.Fetch = true
 	c.Urls.Pubring = "https://www.mixmin.net/yamn/pubring.mix"
 	c.Urls.Mlist2 = "https://www.mixmin.net/yamn/mlist2.txt"
@@ -379,5 +380,25 @@ func (f *Flags) ParseConfig() (*Config, error) {
 			return nil, err
 		}
 	}
+	c.resolvePaths(f.Dir)
 	return c, nil
+}
+
+// resolvePaths makes the relative paths of the files section, from the
+// defaults or from the config file, relative to dir (--dir).  Absolute
+// paths are kept.  Without --dir, relative paths stay relative to the
+// current directory.
+func (c *Config) resolvePaths(dir string) {
+	if dir == "" {
+		return
+	}
+	for _, p := range []*string{
+		&c.Files.Pubkey, &c.Files.Pubring, &c.Files.Secring, &c.Files.Mlist2,
+		&c.Files.Adminkey, &c.Files.Help, &c.Files.Pooldir, &c.Files.Maildir,
+		&c.Files.IDlog, &c.Files.ChunkDB, &c.Files.Logfile, &c.Files.DestBlock,
+	} {
+		if *p != "" && !filepath.IsAbs(*p) {
+			*p = filepath.Join(dir, *p)
+		}
+	}
 }
