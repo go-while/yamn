@@ -251,6 +251,15 @@ func nagOperator() {
 			cfg.Mail.MessageDomain,
 		)
 	}
+	if pipeReadsHeaders(cfg.Mail.Pipe) {
+		log.Warnf(
+			"mail.pipe %q reads the recipients from the headers (-t), "+
+				"so yamn can't pass them: the block list doesn't apply "+
+				"and Bcc recipients get nothing. Remove the -t; yamn "+
+				"then passes the recipients as arguments.",
+			cfg.Mail.Pipe,
+		)
+	}
 	// Complain about excessively small loop values.
 	if cfg.Pool.Loop < 60 {
 		log.Warnf(
@@ -689,14 +698,33 @@ func remailerFoo(subject, from string) (err error) {
 		return
 	}
 	sender := fromAddr.Address
+	if !validRecipient(sender) {
+		err = errors.New("ignoring remailer-* request from an address that can't be replied to safely")
+		return
+	}
 	// The From header can be forged, so reply at most once a day per address.
 	if !fooReplies.allowed(sender) {
 		err = fmt.Errorf("already replied to %s today, ignoring %s", sender, subject)
 		return
 	}
+	// Addresses on the destination block list get no replies either.  If
+	// the list can't be read, don't reply.
+	blockList, err := readDestBlock(cfg.Files.DestBlock)
+	if err != nil {
+		err = fmt.Errorf("unable to read destination block list, ignoring %s: %w", subject, err)
+		return
+	}
+	if destBlocked(blockList, sender) {
+		err = fmt.Errorf("%s is on the destination block list, ignoring %s", sender, subject)
+		return
+	}
 	m := quickmail.NewMessage()
 	m.Set("From", cfg.Remailer.Address)
 	m.Set("To", sender)
+	m.Set("Date", time.Now().Format(rfc5322date))
+	m.Set("Message-ID", messageID())
+	m.Set("MIME-Version", "1.0")
+	m.Set("Content-Type", "text/plain; charset=UTF-8")
 	if strings.HasPrefix(subject, "remailer-key") {
 		// remailer-key
 		log.Tracef("remailer-key request from %s", sender)
@@ -716,6 +744,11 @@ func remailerFoo(subject, from string) (err error) {
 			m.Text(fmt.Sprintf("Maximum message size: %d kB\n", cfg.Remailer.MaxSize))
 		} else {
 			m.Text("Maximum message size: unlimited\n")
+		}
+		if cfg.Mail.MaxRecipients > 0 {
+			m.Text(fmt.Sprintf("Maximum recipients: %d\n", cfg.Mail.MaxRecipients))
+		} else {
+			m.Text("Maximum recipients: unlimited\n")
 		}
 		m.Text("The following header lines will be filtered:\n")
 		m.Text(
