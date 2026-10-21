@@ -184,6 +184,27 @@ func isPermanentSMTP(err error) bool {
 	return errors.As(err, &tpErr) && tpErr.Code >= 500 && tpErr.Code <= 599
 }
 
+// permanentFor reports whether a 5xx reply means the message can never be
+// delivered.  From the recipient's own mail server (direct MX) it does.
+// From the configured relay, only an address error (enhanced status 5.1.x,
+// e.g. "5.1.1 no such user") does.  Other 5xx replies from the relay, such
+// as "5.7.1 relaying denied" or a missing login, usually mean the relay or
+// yamn is misconfigured; dropping the mail would hide that, so it's kept
+// and retried like before.
+func permanentFor(err error, directMX bool) bool {
+	if !isPermanentSMTP(err) {
+		return false
+	}
+	if directMX {
+		return true
+	}
+	var tpErr *textproto.Error
+	if !errors.As(err, &tpErr) {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(tpErr.Msg), "5.1.")
+}
+
 // isNotFound reports whether err is a DNS lookup that found no records
 // (NXDOMAIN, or no records of that type).
 func isNotFound(err error) bool {
@@ -618,7 +639,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 	accepted := 0
 	for _, addr := range sendTo {
 		if err = client.Rcpt(addr); err != nil {
-			if isPermanentSMTP(err) {
+			if permanentFor(err, directMX) {
 				log.Infof("Recipient rejected: Server=%s, Error=%s", serverAddr, err)
 				continue
 			}
@@ -636,7 +657,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 
 	w, err := client.Data()
 	if err != nil {
-		if isPermanentSMTP(err) {
+		if permanentFor(err, directMX) {
 			err = fmt.Errorf("%w: %w", errPermanent, err)
 		}
 		log.Warnf("Error: %s\n", err)
@@ -652,7 +673,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 
 	err = w.Close()
 	if err != nil {
-		if isPermanentSMTP(err) {
+		if permanentFor(err, directMX) {
 			err = fmt.Errorf("%w: message rejected: %w", errPermanent, err)
 		}
 		log.Warnf("Error: %s\n", err)

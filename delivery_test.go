@@ -43,7 +43,13 @@ func TestDeliveryFailures(t *testing.T) {
 		{name: "recipient deferred", to: "a@example.invalid, b@example.invalid",
 			rcptReply: map[string]string{"b@example.invalid": "451 4.7.1 greylisted"},
 			wantKept:  true},
-		{name: "message rejected", to: "a@example.invalid", dataReply: "554 5.7.1 spam"},
+		{name: "message rejected", to: "a@example.invalid", dataReply: "554 5.1.0 bad recipient"},
+		// From the relay, a policy 5xx usually means a misconfiguration
+		// (relaying denied, missing login): keep the mail.
+		{name: "relaying denied by relay", to: "a@example.invalid",
+			rcptReply: map[string]string{"a@example.invalid": "554 5.7.1 relaying denied"},
+			wantKept:  true},
+		{name: "message refused by relay policy", to: "a@example.invalid", dataReply: "554 5.7.1 spam", wantKept: true},
 		{name: "message deferred", to: "a@example.invalid", dataReply: "452 4.3.1 out of space", wantKept: true},
 		{name: "no server", to: "a@example.invalid", noServer: true, wantKept: true},
 	}
@@ -133,6 +139,40 @@ func TestMXLookupFailures(t *testing.T) {
 			}
 			if _, _, delivered := server.result(); delivered != tt.wantDelivered {
 				t.Errorf("delivered = %v, want %v", delivered, tt.wantDelivered)
+			}
+		})
+	}
+}
+
+// TestDeliveryFailuresDirectMX checks that every 5xx from the recipient's
+// own mail server is permanent, including policy rejections that the
+// configured relay would get a retry for.
+func TestDeliveryFailuresDirectMX(t *testing.T) {
+	tests := []struct {
+		name      string
+		rcptReply map[string]string
+		dataReply string
+	}{
+		{name: "recipient refused by policy", rcptReply: map[string]string{"a@example.invalid": "550 5.7.1 refused"}},
+		{name: "message refused by policy", dataReply: "554 5.7.1 spam"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := setupDeliveryTest(t)
+			cfg.Mail.MXRelay = true
+			oldMX := lookupMX
+			t.Cleanup(func() { lookupMX = oldMX })
+			lookupMX = func(string) ([]*net.MX, error) {
+				return []*net.MX{{Host: "mx.example.invalid.", Pref: 10}}, nil
+			}
+			server.mu.Lock()
+			server.rcptReply = tt.rcptReply
+			server.dataReply = tt.dataReply
+			server.mu.Unlock()
+			file := writePoolMessage(t, "To: a@example.invalid\n")
+			emailPoolFile(filepath.Base(file))
+			if _, err := os.Stat(file); err == nil {
+				t.Error("pool file kept after a 5xx from the recipient's MX")
 			}
 		})
 	}

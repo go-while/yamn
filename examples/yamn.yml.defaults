@@ -154,8 +154,10 @@ pool:
     # Delete outbound messages older than this many days; also how long
     # rejected incoming mail is kept. Messages are retried until then after
     # a temporary failure (4xx reply, network or DNS error). A permanent
-    # (5xx) rejection deletes the message at once; recipients rejected with
-    # 5xx are skipped and the others still get it.
+    # (5xx) rejection by the recipient's own mail server deletes the message
+    # at once; recipients rejected with 5xx are skipped and the others still
+    # get it. Through smtp_relay, only an address error (5.1.x) counts as
+    # permanent; other 5xx replies there (e.g. relaying denied) are retried.
     max_age: 28
 
 remailer:
