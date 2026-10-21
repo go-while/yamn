@@ -503,7 +503,9 @@ not part of the repository yet and come with the fixes.
   within `distance` on both sides.
 - **Found:** review 2, K-2. Tests: `TestReviewDistanceWithNamedHop`,
   `TestReviewDistanceNamedMiddle`.
-- **Status:** open.
+- **Status:** fixed in `d318037` (branch `fix/30-chain-distance`, #54). Tests:
+  `TestChainDistanceNamedHops`, `TestChainNamedHopsUnchanged`,
+  `TestChainNegativeDistance`.
 
 ### Y-31: Messages over 255 chunks are truncated
 
