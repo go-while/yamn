@@ -209,12 +209,15 @@ are working, all of them must agree.
 A remailer name must belong to one address; if pingers disagree on that, the
 address published by more pingers is used.
 .IP \(bu 2
-Statistics are the median of the pingers whose
+A remailer's statistics are the median of the pingers whose
 .I mlist2.txt
 is at most
 .B stats.stale_hours
-old, taking the higher latency and lower uptime when there are two middle
-values.  The merged file carries the oldest Generated time used.
+old.  They must come from as many pingers as a key; if fewer fresh ones list
+the remailer, older ones fill in, newest first, and without enough of them the
+remailer gets no statistics (so it isn't chosen at random).  Statistics dated
+more than an hour in the future aren't used.  The merged file carries the
+oldest Generated time used.
 .PP
 Disagreements between pingers are logged (loglevel info), problems with a
 pinger as warnings.  A pinger that can't be reached keeps its last downloaded

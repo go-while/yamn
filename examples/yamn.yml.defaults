@@ -67,10 +67,11 @@ urls:
     # mlist2.txt.<name>. A key is only used if key_quorum pingers publish it,
     # so one wrong or compromised pinger can't add or replace a key. Stats
     # are the median of the pingers' whose stats are at most
-    # stats.stale_hours old. See yamn.yml.client for an example.
+    # stats.stale_hours old, older ones filling in up to key_quorum. See
+    # yamn.yml.client for an example.
     pingers: []
-    # How many pingers must publish a key before it's used. With fewer
-    # working pingers, all of them must agree.
+    # How many pingers must publish a key, or stats for a remailer, before
+    # they're used. With fewer working pingers, all of them must agree.
     key_quorum: 2
 
 # How mail is sent. Clients and remailers both need this to work.
