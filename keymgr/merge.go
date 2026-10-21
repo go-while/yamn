@@ -149,7 +149,7 @@ func mergeKeys(pingers []PingerFiles, quorum int, useExpired bool, now time.Time
 		if p.Pubring == nil {
 			continue
 		}
-		if err := CheckPubring(p.Pubring); err != nil {
+		if err := checkPubring(p.Pubring, now, useExpired); err != nil {
 			res.warn("%s: keyring unusable: %s", p.Name, err)
 			continue
 		}

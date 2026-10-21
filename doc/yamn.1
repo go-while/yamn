@@ -93,7 +93,9 @@ and
 .BR urls.mlist2 ,
 or from every pinger in
 .BR urls.pingers )
-and exit.
+and exit.  A download only replaces the current file if it reads as a keyring
+with at least one key valid now, or as statistics with at least one remailer.
+An https URL isn't followed to a plain http one.
 .TP
 .B "-s, --subject=\fIsubject"
 Specify a Subject header for the message.  If this isn't defined, the Subject
