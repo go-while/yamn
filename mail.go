@@ -179,7 +179,8 @@ func filterHeaders(h mail.Header) {
 
 // readDestBlock reads the destination block list.  Each line holds a full
 // address or "@domain"; blank lines and lines starting with "#" are ignored.
-// Entries are lower case.  A missing file is an empty list.
+// Entries are lower case.  A missing file is an empty list.  See destBlocked
+// for how they match.
 func readDestBlock(filename string) (map[string]bool, error) {
 	list := make(map[string]bool)
 	content, err := os.ReadFile(filename)
@@ -199,15 +200,28 @@ func readDestBlock(filename string) (map[string]bool, error) {
 	return list, nil
 }
 
-// destBlocked reports whether addy matches the block list, either as a full
-// address or by its domain.
+// destBlocked reports whether addy matches the block list: the full address,
+// or "@domain" for its domain or any parent domain, so "@example.com" also
+// blocks "sub.example.com".  Source routes ("%") and address literals never
+// get here: headToAddy drops them (see validRecipient).
 func destBlocked(list map[string]bool, addy string) bool {
 	addy = strings.ToLower(addy)
 	if list[addy] {
 		return true
 	}
-	if i := strings.LastIndex(addy, "@"); i >= 0 && list[addy[i:]] {
-		return true
+	at := strings.LastIndex(addy, "@")
+	if at < 0 {
+		return false
+	}
+	for d := addy[at+1:]; d != ""; {
+		if list["@"+d] {
+			return true
+		}
+		i := strings.Index(d, ".")
+		if i < 0 {
+			break
+		}
+		d = d[i+1:]
 	}
 	return false
 }

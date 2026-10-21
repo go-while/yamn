@@ -26,7 +26,8 @@ func TestDestBlock(t *testing.T) {
 		"bob@example.invalid":         true,
 		"anyone@blocked.invalid":      true,
 		"carol@example.invalid":       false,
-		"someone@sub.blocked.invalid": false, // only the exact domain
+		"someone@sub.blocked.invalid": true, // subdomains too
+		"someone@notblocked.invalid":  false,
 		"# opted out":                 false,
 	} {
 		if got := destBlocked(list, addy); got != want {
