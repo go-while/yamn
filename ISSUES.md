@@ -440,7 +440,8 @@ not part of the repository yet and come with the fixes.
     or reject plaintext starting with SP/HT.
   - Treat an unparseable date as "expire by mtime", never "keep".
 - **Found:** review 2, M-4. Test: `TestReviewPooledDateContinuationSticks`.
-- **Status:** open.
+- **Status:** fixed in `7e4d2ef` (branch `fix/27-pooled-date`, #40). Tests:
+  `TestPooledDateContinuation`, `TestPooledDateFallback`.
 
 ### Y-28: A slow mail server blocks the remailer (tarpit)
 
