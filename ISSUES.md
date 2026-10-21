@@ -828,7 +828,8 @@ not part of the repository yet and come with the fixes.
 - **Fix:** flock `<pooldir>/.lock`, or claim each file by renaming it before
   sending.
 - **Found:** review 2, M-12 (from reading the code).
-- **Status:** open.
+- **Status:** fixed in `6545c02` (branch `fix/44-pool-lock`, #44). Tests:
+  `TestPoolBatchLocked`, `TestPoolFlushLocked`.
 
 ### Y-45: Config: silent fallbacks, unknown keys, no value checks
 
