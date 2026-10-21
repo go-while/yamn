@@ -909,7 +909,11 @@ not part of the repository yet and come with the fixes.
   `--keep-headers` (or a `--from` pseudonym) is given, or warn clearly that
   they are sent.
 - **Found:** review 2, K-12. Test: `TestReviewFromAddressKept`.
-- **Status:** open.
+- **Status:** fixed in `3510062` (branch `fix/47-from-reply-to`). The client
+  removes From and Reply-To by default and reports it; `--keep-from` and
+  `--keep-reply-to` send them, `--keep-headers` still keeps everything. Tests:
+  `TestStripClientHeaders`, `TestStripClientHeadersKeepFrom`,
+  `TestMixprepStripsHeaders`, `TestMixprepKeepFrom`, `TestMixprepKeepHeaders`.
 
 ### Y-48: Logs reveal recipients and chains
 
