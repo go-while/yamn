@@ -128,14 +128,17 @@ func main() {
 	} else if flag.Dummy {
 		injectDummy()
 	} else if flag.Refresh {
-		fmt.Printf("Keyring refresh: from=%s, to=%s\n", cfg.Urls.Pubring, cfg.Files.Pubring)
-		if err := httpGet(cfg.Urls.Pubring, cfg.Files.Pubring, keymgr.CheckPubring); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+		if len(cfg.Urls.Pingers) == 0 {
+			fmt.Printf("Keyring refresh: from=%s, to=%s\n", cfg.Urls.Pubring, cfg.Files.Pubring)
+			fmt.Printf("Stats refresh: from=%s, to=%s\n", cfg.Urls.Mlist2, cfg.Files.Mlist2)
+		} else {
+			fmt.Printf(
+				"Keyring and stats refresh: from %d pingers, to=%s and %s\n",
+				len(cfg.Urls.Pingers), cfg.Files.Pubring, cfg.Files.Mlist2,
+			)
 		}
-		fmt.Printf("Stats refresh: from=%s, to=%s\n", cfg.Urls.Mlist2, cfg.Files.Mlist2)
-		if err := httpGet(cfg.Urls.Mlist2, cfg.Files.Mlist2, keymgr.CheckStats); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
+		// Errors are logged as warnings.
+		refreshKeyring(true)
 	}
 	if flag.Send {
 		// Flush the outbound pool

@@ -12,6 +12,13 @@ import (
 )
 
 // Config contains all the configuration settings for Yamn.
+// Pinger is a source of remailer keys and stats.
+type Pinger struct {
+	Name    string `yaml:"name"`
+	Pubring string `yaml:"pubring"`
+	Mlist2  string `yaml:"mlist2"`
+}
+
 type Config struct {
 	General struct {
 		Loglevel     string `yaml:"loglevel"`
@@ -40,6 +47,10 @@ type Config struct {
 		Fetch   bool   `yaml:"fetch"`
 		Pubring string `yaml:"pubring"`
 		Mlist2  string `yaml:"mlist2"`
+		// Pingers to cross-check.  If set, they replace Pubring and Mlist2.
+		Pingers []Pinger `yaml:"pingers"`
+		// How many pingers must publish a key before it's used
+		KeyQuorum int `yaml:"key_quorum"`
 	} `yaml:"urls"`
 	Mail struct {
 		Sendmail     bool   `yaml:"sendmail"`
@@ -303,6 +314,7 @@ func (f *Flags) newConfig() *Config {
 	c.Urls.Fetch = true
 	c.Urls.Pubring = "https://www.mixmin.net/yamn/pubring.mix"
 	c.Urls.Mlist2 = "https://www.mixmin.net/yamn/mlist2.txt"
+	c.Urls.KeyQuorum = 2
 	c.Mail.Sendmail = false
 	c.Mail.Outfile = false
 	c.Mail.SMTPRelay = "fleegle.mixmin.net"

@@ -61,6 +61,17 @@ urls:
     fetch: true
     pubring: https://www.mixmin.net/yamn/pubring.mix
     mlist2: https://www.mixmin.net/yamn/mlist2.txt
+    # Several pingers to cross-check instead of the single pubring and mlist2
+    # above. Each entry has a name (letters, digits, - and _), a pubring and
+    # an mlist2 URL; their files are kept as pubring.mix.<name> and
+    # mlist2.txt.<name>. A key is only used if key_quorum pingers publish it,
+    # so one wrong or compromised pinger can't add or replace a key. Stats
+    # are the median of the pingers' whose stats are at most
+    # stats.stale_hours old. See yamn.yml.client for an example.
+    pingers: []
+    # How many pingers must publish a key before it's used. With fewer
+    # working pingers, all of them must agree.
+    key_quorum: 2
 
 # How mail is sent. Clients and remailers both need this to work.
 mail:

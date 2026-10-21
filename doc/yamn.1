@@ -90,7 +90,9 @@ which is split into one Maildir message per mail.
 Download the public keyring and statistics now (from
 .B urls.pubring
 and
-.BR urls.mlist2 )
+.BR urls.mlist2 ,
+or from every pinger in
+.BR urls.pingers )
 and exit.
 .TP
 .B "-s, --subject=\fIsubject"
@@ -178,6 +180,41 @@ and
 are minimal starting points.
 .B "yamn --debug"
 prints the configuration in effect.
+.SS Several pingers
+By default the keyring and statistics come from a single pinger
+.RB ( urls.pubring
+and
+.BR urls.mlist2 ).
+That pinger decides which key each remailer has.  With
+.BR urls.pingers ,
+yamn downloads the files of several pingers, kept as
+.I pubring.mix.<name>
+and
+.IR mlist2.txt.<name> ,
+and merges them into the usual
+.I pubring.mix
+and
+.IR mlist2.txt :
+.IP \(bu 2
+A key is only used if at least
+.B urls.key_quorum
+pingers (default 2) publish it for the same remailer.  So one wrong, stale or
+compromised pinger can neither add a key nor replace one.  If fewer pingers
+are working, all of them must agree.
+.IP \(bu 2
+A remailer name must belong to one address; if pingers disagree on that, the
+address published by more pingers is used.
+.IP \(bu 2
+Statistics are the median of the pingers whose
+.I mlist2.txt
+is at most
+.B stats.stale_hours
+old, taking the higher latency and lower uptime when there are two middle
+values.  The merged file carries the oldest Generated time used.
+.PP
+Disagreements between pingers are logged (loglevel info), problems with a
+pinger as warnings.  A pinger that can't be reached keeps its last downloaded
+files.
 .SH SEE ALSO
 .I ISSUES.md
 in the source tree for known issues and their status.
