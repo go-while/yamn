@@ -55,6 +55,12 @@ func main() {
 	}
 	// If the debug flag is set, print the config and exit
 	if flag.Debug {
+		if cfg.Files.Config != "" {
+			fmt.Printf("# Config file: %s\n", cfg.Files.Config)
+		}
+		for _, w := range cfg.Warnings {
+			fmt.Fprintln(os.Stderr, "Warning:", w)
+		}
 		y, err := cfg.Debug()
 		if err != nil {
 			fmt.Printf("Debugging Error: %s\n", err)
@@ -93,6 +99,9 @@ func main() {
 		log.Infof("Using config file: %s", cfg.Files.Config)
 	} else {
 		log.Warn("No config file was found. Resorting to defaults")
+	}
+	for _, w := range cfg.Warnings {
+		log.Warn(w)
 	}
 	if local, ok := config.IgnoredLocalConfig(cfg.Files.Config); ok {
 		log.Warnf(

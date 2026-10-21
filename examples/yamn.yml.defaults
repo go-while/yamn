@@ -10,6 +10,8 @@
 #   4. ~/yamn.yml
 #   5. /etc/yamn.yml
 # It never reads a yamn.yml from the current directory (pass --config ./yamn.yml).
+# A file given with 1 or 2 must exist. Unknown options are reported as
+# warnings and ignored.
 #
 # The test TestExampleDefaults keeps this file in sync with the built-in
 # defaults: if a default changes, update it here.

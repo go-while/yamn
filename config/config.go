@@ -1,12 +1,15 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -26,9 +29,9 @@ type Config struct {
 		LogToJournal bool   `yaml:"logtojournal"`
 	} `yaml:"general"`
 	Files struct {
-		// Config is a special variable that returns the name of the active config file.
-		// If it's set in the config file, it will be ignored.
-		Config   string
+		// Config is the name of the config file in use.  It can't be set
+		// in the config file.
+		Config   string `yaml:"-"`
 		Pubring  string `yaml:"pubring"`
 		Mlist2   string `yaml:"mlist2"`
 		Pubkey   string `yaml:"pubkey"`
@@ -105,6 +108,9 @@ type Config struct {
 		Keygrace    int    `yaml:"key_grace"`
 		Daemon      bool   `yaml:"daemon"`
 	} `yaml:"remailer"`
+	// Warnings about the config file, such as unknown options, to be
+	// logged once logging is set up.
+	Warnings []string `yaml:"-"`
 }
 
 type Flags struct {
@@ -143,7 +149,7 @@ func GetCfg() (*Flags, *Config) {
 	c, err := f.ParseConfig()
 	if err != nil {
 		// No logging is defined at this point so log the error to stderr
-		fmt.Fprintf(os.Stderr, "Unable to parse config file: %v", err)
+		fmt.Fprintf(os.Stderr, "Unable to parse config file: %v\n", err)
 		os.Exit(1)
 	}
 	return f, c
@@ -242,12 +248,18 @@ func (f *Flags) findConfig() (string, error) {
 		_, err := os.Stat(name)
 		return name != "" && err == nil
 	}
-	// if a --config flag was passed, try that as the highest priority
-	if exists(f.Config) {
+	// A file given with --config or $YAMNCFG must exist: falling back to
+	// another one would silently use other settings.
+	if f.Config != "" {
+		if !exists(f.Config) {
+			return "", fmt.Errorf("--config %s: no such file", f.Config)
+		}
 		return f.Config, nil
 	}
-	// Does the environment variable YAMNCFG point to a valid file?
-	if env := os.Getenv("YAMNCFG"); exists(env) {
+	if env := os.Getenv("YAMNCFG"); env != "" {
+		if !exists(env) {
+			return "", fmt.Errorf("YAMNCFG=%s: no such file", env)
+		}
 		return env, nil
 	}
 	// Is there a yamn.yml file in the --dir directory?  Only if --dir was
@@ -367,6 +379,9 @@ func (f *Flags) ParseConfig() (*Config, error) {
 	c := f.newConfig()
 	// Try (really hard) to locate a yamn config file
 	cfgFile, err := f.findConfig()
+	if err != nil && err != os.ErrNotExist {
+		return nil, err
+	}
 	if err == nil {
 		// Useful for informing the user what config file is being read
 		c.Files.Config = cfgFile
@@ -379,9 +394,53 @@ func (f *Flags) ParseConfig() (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
+		c.Warnings = append(c.Warnings, unknownOptions(cfgFile, yamlBytes)...)
+		if err := c.validate(); err != nil {
+			return nil, fmt.Errorf("%s: %w", cfgFile, err)
+		}
 	}
 	c.resolvePaths(f.Dir)
 	return c, nil
+}
+
+// unknownOptions returns a warning for every option in the YAML config data
+// that yamn doesn't know, e.g. a misspelt one.  They are ignored, not an
+// error, so a config file with an option of another yamn version still
+// works.
+func unknownOptions(name string, data []byte) (warnings []string) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var typeErr *yaml.TypeError
+	if !errors.As(dec.Decode(new(Config)), &typeErr) {
+		return
+	}
+	for _, msg := range typeErr.Errors {
+		// "line 7: field key_qorum not found in type struct {...}"
+		line, rest, ok := strings.Cut(msg, ": field ")
+		option, _, found := strings.Cut(rest, " not found in type")
+		if ok && found {
+			warnings = append(warnings, fmt.Sprintf("%s, %s: unknown option %q, ignored", name, line, option))
+		}
+	}
+	return
+}
+
+// validate checks the values that would make yamn fail or panic later.
+func (c *Config) validate() error {
+	var errs []error
+	check := func(ok bool, format string, args ...any) {
+		if !ok {
+			errs = append(errs, fmt.Errorf(format, args...))
+		}
+	}
+	s := c.Stats
+	check(s.Distance >= 0, "stats.distance must be at least 0, not %d", s.Distance)
+	check(s.Minlat >= 0, "stats.minlat must be at least 0, not %d", s.Minlat)
+	check(s.Maxlat >= s.Minlat, "stats.maxlat (%d) must be at least stats.minlat (%d)", s.Maxlat, s.Minlat)
+	check(s.Minrel >= 0 && s.Minrel <= 100, "stats.minrel must be 0 to 100, not %g", s.Minrel)
+	check(s.Relfinal >= 0 && s.Relfinal <= 100, "stats.rel_final must be 0 to 100, not %g", s.Relfinal)
+	check(c.Urls.KeyQuorum >= 1, "urls.key_quorum must be at least 1, not %d", c.Urls.KeyQuorum)
+	return errors.Join(errs...)
 }
 
 // resolvePaths makes the relative paths of the files section, from the
