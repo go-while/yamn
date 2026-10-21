@@ -67,6 +67,12 @@ func readMessage(r io.Reader, name string) []byte {
 	if flag.Subject != "" {
 		msg.Header["Subject"] = []string{flag.Subject}
 	}
+	// The exit only sends to To, Cc and Bcc addresses and drops a message
+	// without any, so it isn't sent at all.
+	if !hasRecipient(msg.Header) {
+		fmt.Fprintf(os.Stderr, "%s: No recipient: the message needs a To, Cc or Bcc address\n", name)
+		os.Exit(1)
+	}
 	if !flag.KeepHeaders {
 		if removed := stripClientHeaders(msg.Header); len(removed) > 0 {
 			fmt.Fprintf(
@@ -83,6 +89,17 @@ func readMessage(r io.Reader, name string) []byte {
 		os.Exit(1)
 	}
 	return plain
+}
+
+// hasRecipient reports whether h has an address in To, Cc or Bcc, the
+// headers an exit sends to.
+func hasRecipient(h mail.Header) bool {
+	for _, k := range []string{"To", "Cc", "Bcc"} {
+		if len(headToAddy(h, k)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // stripClientHeaders removes headers that could identify the sender before a
@@ -137,10 +154,13 @@ func mixprep() {
 	} else if len(flag.Args) == 1 {
 		// A single arg should be the filename
 		plain = readMessageFile(flag.Args[0])
-	} else if len(flag.Args) >= 2 {
+	} else if len(flag.Args) == 2 {
 		// Two args should be recipient and filename
 		flag.To = flag.Args[0]
 		plain = readMessageFile(flag.Args[1])
+	} else {
+		fmt.Fprintf(os.Stderr, "Too many arguments: %q (expected [recipient] [filename])\n", flag.Args)
+		os.Exit(1)
 	}
 	// plainLen is the length of the plain byte message and can exceed
 	// the total body size of the payload.
@@ -165,20 +185,20 @@ func mixprep() {
 	}
 	err = Pubring.ImportPubring()
 	if err != nil {
-		log.Warnf("Pubring import failed: %s", cfg.Files.Pubring)
-		return
+		log.Errorf("Pubring import failed: %s: %s", cfg.Files.Pubring, err)
+		os.Exit(1)
 	}
 	// Read the chain from flag or config
-	var inChain []string
+	chainText := cfg.Stats.Chain
+	if flag.Chain != "" {
+		chainText = flag.Chain
+	}
+	inChain, err := parseChain(chainText)
+	if err != nil {
+		log.Error(err)
+		os.Exit(1)
+	}
 	var inChainFunc []string
-	if flag.Chain == "" {
-		inChain = strings.Split(cfg.Stats.Chain, ",")
-	} else {
-		inChain = strings.Split(flag.Chain, ",")
-	}
-	if len(inChain) == 0 {
-		log.Fatal("empty input chain")
-	}
 	copies := numCopies()
 	var cnum int // Chunk number
 	numc := int(math.Ceil(float64(plainLen) / float64(maxFragLength)))
@@ -199,6 +219,9 @@ func mixprep() {
 	var gotExit bool    // Flag to indicate an exit node has been selected
 	var firstByte int   // First byte of message slice
 	var lastByte int    // Last byte of message slice
+	// All chunks and copies are encoded before the first is pooled, so a
+	// failure can't leave a part of the message to be sent.
+	var encoded []encodedMail
 	// Fragments loop begins here
 	for cnum = 1; cnum <= numc; cnum++ {
 		final.setChunkNum(cnum)
@@ -222,7 +245,7 @@ func mixprep() {
 			chain, err = makeChain(inChainFunc)
 			if err != nil {
 				log.Error(err)
-				os.Exit(0)
+				os.Exit(1)
 			}
 			if len(chain) != len(inChain) {
 				err = fmt.Errorf("chain length mismatch: in=%d, out=%d", len(inChain), len(chain))
@@ -248,18 +271,40 @@ func mixprep() {
 				log.Error(err)
 				os.Exit(1)
 			}
-			if err = outputMessage(sendTo, yamnMsg); err != nil {
-				log.Error(err)
-				os.Exit(1)
-			}
+			encoded = append(encoded, encodedMail{sendTo, yamnMsg})
 		} // End of copies loop
 	} // End of fragments loop
+	for _, m := range encoded {
+		if err = outputMessage(m.sendTo, m.msg); err != nil {
+			log.Error(err)
+			os.Exit(1)
+		}
+	}
 
 	// Decide if we want to inject a dummy.  Not with --stdout: dummies are
 	// sent from the pool, and nothing else from this message is.
 	if !flag.NoDummy && !flag.Stdout && Pubring.HaveStats() && crandom.Dice() < 80 {
 		dummy()
 	}
+}
+
+// encodedMail is an encrypted packet and the first hop to send it to.
+type encodedMail struct {
+	sendTo string
+	msg    []byte
+}
+
+// parseChain splits a chain given as "rem1,rem2,..." into its hops.  Spaces
+// around a hop are ignored, and an empty hop is an error.
+func parseChain(s string) ([]string, error) {
+	hops := strings.Split(s, ",")
+	for i, hop := range hops {
+		hops[i] = strings.TrimSpace(hop)
+		if hops[i] == "" {
+			return nil, fmt.Errorf("chain %q: empty hop", s)
+		}
+	}
+	return hops, nil
 }
 
 // mailOutput receives the encrypted mails with --stdout.  Tests replace it.
