@@ -171,7 +171,7 @@ pool:
     max_age: 28
 
 remailer:
-    # Short name in keyrings and stats, 2 to 12 characters
+    # Short name in keyrings and stats, 2 to 12 letters and digits
     name: anon
     # The remailer's email address; has to be a real address
     address: mix@nowhere.invalid
