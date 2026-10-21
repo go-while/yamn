@@ -185,6 +185,15 @@ and
 are minimal starting points.
 .B "yamn --debug"
 prints the configuration in effect.
+.SS Exit remailers
+An exit delivers a message to at most
+.B mail.max_recipients
+addresses (default 10; 0 means no limit), counting To, Cc and Bcc after the
+destination block list.  A message with more recipients is not delivered, so
+one anonymous message can't be fanned out to hundreds of addresses.  The limit
+is announced in the
+.B remailer-conf
+reply.
 .SS Several pingers
 By default the keyring and statistics come from a single pinger
 .RB ( urls.pubring

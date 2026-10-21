@@ -120,6 +120,9 @@ mail:
     # MIME-Version, X-No-Archive, Content-*). The client applies the same list
     # to the messages it sends, unless --keep-headers is given.
     allow_headers: []
+    # Most recipients (To, Cc and Bcc, after the block list) an exit mails a
+    # message to. A message with more is not delivered. 0 means no limit.
+    max_recipients: 10
 
 # How a client (or a remailer sending dummies) picks random remailers.
 stats:

@@ -415,6 +415,12 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 		return
 	}
 	sendTo = allowed
+	// Limit the fan-out of a single anonymous message.
+	if limit := cfg.Mail.MaxRecipients; limit > 0 && len(sendTo) > limit {
+		err = fmt.Errorf("%s: %d recipients exceed max_recipients of %d", filename, len(sendTo), limit)
+		delFlag = true
+		return
+	}
 	// There is an assumption here that all errors from mailBytes should not
 	// delete pool files (delFlag is false by default).
 	err = mailBytes(assemble(*msg), sendTo)

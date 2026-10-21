@@ -745,6 +745,11 @@ func remailerFoo(subject, from string) (err error) {
 		} else {
 			m.Text("Maximum message size: unlimited\n")
 		}
+		if cfg.Mail.MaxRecipients > 0 {
+			m.Text(fmt.Sprintf("Maximum recipients: %d\n", cfg.Mail.MaxRecipients))
+		} else {
+			m.Text("Maximum recipients: unlimited\n")
+		}
 		m.Text("The following header lines will be filtered:\n")
 		m.Text(
 			fmt.Sprintf("\n$remailer{\"%s\"} = \"<%s>",
