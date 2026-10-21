@@ -889,7 +889,11 @@ not part of the repository yet and come with the fixes.
   - Refuse a message without recipients; trim and check the arguments.
 - **Found:** review 2, K-9, K-15 and K-16. Tests: `TestReviewChainErrorExitZero`,
   `TestReviewDummyExitStatus`, `TestReviewNoRecipient`, `TestReviewChainWithSpaces`.
-- **Status:** open.
+- **Status:** fixed in `b2b3976` (branch `fix/46-client-exit-status`, #56).
+  Tests: `TestClientChainErrorExitStatus`, `TestClientChainWithSpaces`,
+  `TestClientDummyFailureExitStatus`, `TestClientImportFailureExitStatus`,
+  `TestClientNoRecipient`, `TestClientTooManyArgs`, `TestHasRecipient`,
+  `TestParseChain`.
 
 ### Y-47: The client keeps the From address and Reply-To
 
