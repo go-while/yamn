@@ -538,7 +538,8 @@ not part of the repository yet and come with the fixes.
   - With an even count, take the true median.
   - Reject a `Generated` time in the future.
 - **Found:** review 2, K-4. Test: `TestReviewStatsOnePingerDecides`.
-- **Status:** open.
+- **Status:** fixed in `acc3a29` (branch `fix/32-stats-quorum`, #52). Tests:
+  `TestMedian`, `TestMergeStatsQuorum`.
 
 ## Low
 
