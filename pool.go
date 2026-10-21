@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	//"github.com/codahale/blake2"
@@ -33,14 +34,91 @@ func serverPoolOutboundSend() {
 	}
 	sleepFor := time.Duration(cfg.Pool.Loop) * time.Second
 	for {
-		// Read dynamic mix of outbound files from the Pool
-		// filenames = dynamicMix()
-		// Read binomialMix of outbound files from the Pool
-		filenames := binomialMix()
-		for _, filename := range filenames {
-			emailPoolFile(filename)
-		}
+		sendPoolBatch()
 		time.Sleep(sleepFor)
+	}
+}
+
+// errPoolLocked is returned by lockPool when another process is sending
+// from the pool.
+var errPoolLocked = errors.New("another yamn process is sending from the pool")
+
+// sendPoolBatch sends one binomial mix batch from the pool, unless another
+// process holds the pool lock.
+func sendPoolBatch() {
+	unlock, err := lockPool()
+	if err != nil {
+		log.Infof("Skipping this pool run: %s", err)
+		return
+	}
+	defer unlock()
+	// Read dynamic mix of outbound files from the Pool
+	// filenames = dynamicMix()
+	// Read binomialMix of outbound files from the Pool
+	filenames := binomialMix()
+	// remailer-* replies aren't anonymous, so they aren't mixed.
+	replies, _ := readDir(cfg.Files.Pooldir, "r")
+	sendPoolFiles(append(filenames, replies...))
+}
+
+// poolWorkers is how many pool files are sent at the same time.  A mail
+// server that is slow or never answers holds up one worker for up to
+// smtpTimeout, while the others carry on.
+const poolWorkers = 4
+
+// sendPoolFiles sends the given pool files, poolWorkers at a time, and
+// returns when all are done.  Names starting with "r" are remailer-*
+// replies, the others outbound messages.
+func sendPoolFiles(filenames []string) {
+	sem := make(chan struct{}, poolWorkers)
+	var wg sync.WaitGroup
+	for _, filename := range filenames {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+			if strings.HasPrefix(filename, "r") {
+				sendReplyFile(filename)
+			} else {
+				emailPoolFile(filename)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// writeReplyToPool stores a remailer-* reply in the pool, to be sent by
+// sendReplyFile.
+func writeReplyToPool(msg []byte) error {
+	_, err := writePoolFile("r", msg)
+	return err
+}
+
+// sendReplyFile sends a pooled remailer-* reply to its To address and
+// deletes it.  A reply gets one attempt: the request's From can be forged,
+// so it isn't worth retrying.
+func sendReplyFile(filename string) {
+	defer poolDelete(filename)
+	content, err := os.ReadFile(path.Join(cfg.Files.Pooldir, filename))
+	if err != nil {
+		log.Warnf("Failed to read reply %s: %s", filename, err)
+		return
+	}
+	msg, err := mail.ReadMessage(bytes.NewReader(content))
+	if err != nil {
+		log.Warnf("Reply %s is not a mail: %s", filename, err)
+		return
+	}
+	to, err := mail.ParseAddress(msg.Header.Get("To"))
+	if err != nil {
+		log.Warnf("Reply %s has no valid To: %s", filename, err)
+		return
+	}
+	if err = mailBytes(content, []string{to.Address}); err != nil {
+		log.Infof("Failed to send remailer-* reply %s: %s", filename, err)
 	}
 }
 
@@ -56,6 +134,12 @@ func poolOutboundSend() {
 		err = errors.New("cannot flush pool when running as a daemon")
 		panic(err)
 	}
+	unlock, err := lockPool()
+	if err != nil {
+		log.Warnf("Not flushing the pool: %s", err)
+		return
+	}
+	defer unlock()
 	var filenames []string
 	// Read all the pool files
 	filenames, err = readDir(cfg.Files.Pooldir, "m")
@@ -67,9 +151,8 @@ func poolOutboundSend() {
 		// During normal operation, the pool shouldn't be flushed.
 		log.Warn("Flushing outbound remailer pool")
 	}
-	for _, filename := range filenames {
-		emailPoolFile(filename)
-	}
+	replies, _ := readDir(cfg.Files.Pooldir, "r")
+	sendPoolFiles(append(filenames, replies...))
 }
 
 // emailPoolFile tries to email a given file from the Pool.  If conditions are
@@ -223,6 +306,12 @@ func processMail(secret *keymgr.Secring) (err error) {
 			continue
 		}
 		err = decodeSafely(msg, secret)
+		if errors.Is(err, errPoolWrite) {
+			// A local problem, so keep the mail for the next run.
+			log.Warnf("%s: keeping the mail: %s", key, err)
+			requeueMail(dir, key)
+			continue
+		}
 		logDecodeError(err, log.Info)
 		err = dir.Purge(key)
 		if err != nil {
@@ -230,6 +319,18 @@ func processMail(secret *keymgr.Secring) (err error) {
 		}
 	} // Maildir keys loop
 	return
+}
+
+// requeueMail moves a message back from cur to new in the Maildir, so the
+// next processMail run reads it again.
+func requeueMail(dir maildir.Dir, key string) {
+	filename, err := dir.Filename(key)
+	if err == nil {
+		err = os.Rename(filename, path.Join(string(dir), "new", key))
+	}
+	if err != nil {
+		log.Warnf("%s: moving it back to new failed: %s", key, err)
+	}
 }
 
 // rejectedMaildir is a Maildir++ subfolder for incoming mail that isn't a
@@ -317,6 +418,11 @@ func processInpool(prefix string, secret *keymgr.Secring) {
 			continue
 		}
 		err = decodeSafely(msg, secret)
+		if errors.Is(err, errPoolWrite) {
+			// Keep the file to try again on the next run.
+			log.Warnf("%s: keeping it in the pool: %s", f, err)
+			continue
+		}
 		logDecodeError(err, log.Warn)
 		poolDelete(f)
 		processed++
@@ -343,17 +449,83 @@ func randPoolFilename(prefix string) (fqfn string) {
 	return
 }
 
-// newPoolFile opens a new file in Write mode and sets user-only permissions
-func newPoolFile(prefix string) (f *os.File, err error) {
-	/*
-		Currently supported prefixs are:-
-		[ m              Oubound message (final or intermediate) ]
-		[ i          Inbound message (destined for this remailer ]
-		[ p               Partial message chunk needing assembly ]
-	*/
+// errPoolWrite marks a failure to store a file in the pool.  That's a local
+// problem (disk full, permissions), not a bad message, so the message is
+// kept where it came from and processed again later.
+var errPoolWrite = errors.New("pool write failed")
+
+// poolTempPrefix starts the names of pool files that are still being
+// written.  No pool reader looks for it.
+const poolTempPrefix = ".tmp-"
+
+// writePoolFile stores content as a new pool file and returns its name.
+// Supported prefixes:
+//
+//	m        outbound message (final or intermediate)
+//	i        inbound message (destined for this remailer)
+//	p        partial message chunk needing assembly
+//	outfile- delivered message (mail.outfile)
+//
+// The content goes to a temporary file (mode 0600, created exclusively) that
+// is synced and then renamed, so a pool reader never sees a partial file and
+// a crash leaves none behind.
+func writePoolFile(prefix string, content ...[]byte) (filename string, err error) {
+	tmp, err := os.CreateTemp(cfg.Files.Pooldir, poolTempPrefix+"*")
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errPoolWrite, err)
+	}
+	defer func() {
+		if err != nil {
+			tmp.Close()
+			os.Remove(tmp.Name())
+			err = fmt.Errorf("%w: %w", errPoolWrite, err)
+		}
+	}()
+	for _, c := range content {
+		if _, err = tmp.Write(c); err != nil {
+			return
+		}
+	}
+	if err = tmp.Sync(); err != nil {
+		return
+	}
+	if err = tmp.Close(); err != nil {
+		return
+	}
 	fqfn := randPoolFilename(prefix)
-	f, err = os.OpenFile(fqfn, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	return
+	if err = os.Rename(tmp.Name(), fqfn); err != nil {
+		return
+	}
+	// Sync the directory too, so the new name survives a crash.
+	if d, derr := os.Open(cfg.Files.Pooldir); derr == nil {
+		d.Sync()
+		d.Close()
+	}
+	_, filename = path.Split(fqfn)
+	return filename, nil
+}
+
+// cleanPoolTemp deletes temporary pool files left behind by a crash.
+func cleanPoolTemp() {
+	names, err := readDir(cfg.Files.Pooldir, poolTempPrefix)
+	if err != nil {
+		return
+	}
+	for _, name := range names {
+		fqfn := path.Join(cfg.Files.Pooldir, name)
+		info, err := os.Stat(fqfn)
+		if err == nil && time.Since(info.ModTime()) > 24*time.Hour {
+			os.Remove(fqfn)
+		}
+	}
+}
+
+// internalHeader returns the internal Yamn-Pooled-Date line that starts
+// every pooled message.
+func internalHeader() []byte {
+	buf := new(bytes.Buffer)
+	writeInternalHeader(buf)
+	return buf.Bytes()
 }
 
 // writeMessageToPool requires a recipient address (another remailer) and a
@@ -364,13 +536,7 @@ func writeMessageToPool(sendTo string, payload []byte) error {
 	if err := writeYamnMail(mail, sendTo, payload); err != nil {
 		return err
 	}
-	f, err := newPoolFile("m")
-	if err != nil {
-		return fmt.Errorf("unable to create pool file: %w", err)
-	}
-	defer f.Close()
-	writeInternalHeader(f)
-	_, err = f.Write(mail.Bytes())
+	_, err := writePoolFile("m", internalHeader(), mail.Bytes())
 	return err
 }
 
@@ -400,14 +566,6 @@ func deliverToMaildir(dir maildir.Dir, data []byte) (delivered int, err error) {
 }
 
 // writePlainToPool writes a plaintext file to the pool and returns the filename
-func writePlainToPool(payload []byte, prefix string) (filename string) {
-	f, err := newPoolFile(prefix)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-	writeInternalHeader(f)
-	f.Write(payload)
-	_, filename = path.Split(f.Name())
-	return
+func writePlainToPool(payload []byte, prefix string) (filename string, err error) {
+	return writePoolFile(prefix, internalHeader(), payload)
 }

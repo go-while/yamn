@@ -5,6 +5,11 @@ to that branch at commit `788b526`.
 
 Status values: **open**, **in progress**, **fixed** (with commit).
 
+Y-23 to Y-52 come from a second review of `master` at `15acb78`
+(2026-10-21; crypto/packets, mail/network, client/config). The review test
+names refer to tests written in a scratch copy during that review; they are
+not part of the repository yet and come with the fixes.
+
 | ID | Severity | Summary | Status |
 |---|---|---|---|
 | [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | fixed (4f370cc) |
@@ -29,6 +34,36 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-20](#y-20-client-does-not-strip-identifying-headers) | Low | Client does not strip identifying headers | fixed (0d01f6a) |
 | [Y-21](#y-21-client-ignores-the-message-file-argument) | Medium | Client ignores the message file argument | fixed (13fcf17) |
 | [Y-22](#y-22-relative-paths-in-yamnyml-ignore---dir) | Low | Relative paths in yamn.yml ignore `--dir` | fixed (6886742) |
+| [Y-23](#y-23-malformed-pubring-entries-can-stop-a-remailer) | Medium | Malformed pubring entries can stop a remailer | open |
+| [Y-24](#y-24-quoted-addresses-inject-esmtp-parameters-past-the-block-list) | Medium | Quoted addresses inject ESMTP parameters past the block list | open |
+| [Y-25](#y-25-a-bare-cr-reaches-the-smtp-wire) | Medium | A bare CR reaches the SMTP wire | open |
+| [Y-26](#y-26-pipe-mode-ignores-the-block-list-and-drops-bcc) | Medium | Pipe mode ignores the block list and drops Bcc | open |
+| [Y-27](#y-27-a-message-can-stay-in-the-pool-forever) | Medium | A message can stay in the pool forever | open |
+| [Y-28](#y-28-a-slow-mail-server-blocks-the-remailer-tarpit) | Medium | A slow mail server blocks the remailer (tarpit) | open |
+| [Y-29](#y-29-data-files-are-read-from-the-current-directory-without---dir) | Medium | Data files are read from the current directory without --dir | open |
+| [Y-30](#y-30-distance-is-ignored-for-hops-named-in---chain) | Medium | `distance` is ignored for hops named in --chain | open |
+| [Y-31](#y-31-messages-over-255-chunks-are-truncated) | Medium | Messages over 255 chunks are truncated | open |
+| [Y-32](#y-32-merged-stats-have-no-quorum) | Medium | Merged stats have no quorum | open |
+| [Y-33](#y-33-pool-and-chunk-files-are-not-written-atomically) | Low | Pool and chunk files are not written atomically | open |
+| [Y-34](#y-34-partial-chunks-have-no-storage-limit) | Low | Partial chunks have no storage limit | open |
+| [Y-35](#y-35-a-running-remailer-keeps-keys-that-left-the-keyring) | Low | A running remailer keeps keys that left the keyring | open |
+| [Y-36](#y-36-the-advertised-key-is-not-checked-against-the-secret-keyring) | Low | The advertised key is not checked against the secret keyring | open |
+| [Y-37](#y-37-secret-keyring-handling-purge-crash-safety-dates) | Low | Secret keyring handling: purge, crash safety, dates | open |
+| [Y-38](#y-38-one-corrupt-idlog-entry-stops-every-startup) | Low | One corrupt idlog entry stops every startup | open |
+| [Y-39](#y-39-multi-pinger-merge-quorum-shrinks-ties-go-to-the-freshest-pinger) | Low | Multi-pinger merge: quorum shrinks, ties go to the freshest pinger | open |
+| [Y-40](#y-40-downloads-weaker-checks-than-the-parsers-httpshttp-redirects) | Low | Downloads: weaker checks than the parsers, https→http redirects | open |
+| [Y-41](#y-41-delivery-failures-5xx-retried-for-28-days-mx-fallback) | Low | Delivery failures: 5xx retried for 28 days, MX fallback | open |
+| [Y-42](#y-42-remailer--replies-skip-the-block-list-and-lack-datemessage-id) | Low | `remailer-*` replies skip the block list and lack Date/Message-ID | open |
+| [Y-43](#y-43-no-limit-on-recipients-per-exit-message) | Low | No limit on recipients per exit message | open |
+| [Y-44](#y-44-no-pool-lock--s-next-to-a---daemon-remailer-sends-twice) | Low | No pool lock: `-S` next to a `--daemon` remailer sends twice | open |
+| [Y-45](#y-45-config-silent-fallbacks-unknown-keys-no-value-checks) | Low | Config: silent fallbacks, unknown keys, no value checks | open |
+| [Y-46](#y-46-client-exit-status-and-argument-checks) | Low | Client: exit status and argument checks | open |
+| [Y-47](#y-47-the-client-keeps-the-from-address-and-reply-to) | Low | The client keeps the From address and Reply-To | open |
+| [Y-48](#y-48-logs-reveal-recipients-and-chains) | Low | Logs reveal recipients and chains | open |
+| [Y-49](#y-49-the-keyring-is-fetched-at-send-time) | Low | The keyring is fetched at send time | open |
+| [Y-50](#y-50-smaller-mail-issues) | Info | Smaller mail issues | open |
+| [Y-51](#y-51-smaller-client-and-documentation-issues) | Info | Smaller client and documentation issues | open |
+| [Y-52](#y-52-crypto-notes-no-action-needed) | Info | Crypto notes (no action needed) | no action |
 
 ---
 
@@ -302,6 +337,212 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 - **Status:** fixed in `13fcf17` (branch `fix/21-client-args`): `ParseFlags` sets
   `f.Args = flag.Args()`. Test: `TestFlagsArgs` in `config/config_test.go`.
 
+### Y-23: Malformed pubring entries can stop a remailer
+
+- **Where:** `keymgr/public.go` (`readPubring`: address and name not
+  validated), `client.go` (`encodeMsg` calls `os.Exit(1)` when a hop is
+  unknown), `packet.go` (`setNextHop` panics above 52 bytes); reached from
+  the decode path through `dummy()` and `randhop` in `server.go`.
+- **Impact:**
+  - A pubring entry whose address has no `@` (and differs from its name)
+    makes a running remailer exit with status 1 as soon as it picks that
+    entry for a dummy or a randhop. `decodeSafely` can't catch `os.Exit`, so
+    the remailer dies again after every restart.
+  - Addresses over 52 bytes are imported and make `encodeMsg` panic.
+  - Names aren't validated either. A name with `@` can't be looked up, `%`
+    breaks the stats format, and with duplicate names the last one wins.
+  - Whoever controls the keyring content can trigger this: one pinger, or a
+    quorum with `urls.pingers`. A single malformed key can also do it by
+    accident.
+- **Fix:**
+  - `readPubring` accepts only `local@domain` addresses of at most 52 bytes
+    without spaces or control characters, and names matching `[a-z0-9]+`.
+  - `encodeMsg` returns an error instead of exiting; dummies and randhops log
+    and drop.
+- **Found:** review 2, C-1 and K-20. Tests: `TestReviewC1PubringAddressWithoutAt`,
+  `TestReviewC1LongAddressPanics`, `TestReviewDuplicateNameLastWins`.
+- **Status:** fixed in `5d873f0` (branch `fix/23-pubring-validation`, #50).
+  Tests: `TestEncodeMsgUnknownHop`, `TestImportPubringAmbiguous`,
+  `TestLongPubringAddress`, `TestRandhopBadPubringAddress`,
+  `TestReadPubringValidatesHeader`, `TestRealPubringsValid`,
+  `TestSetNameAddressValidated`.
+
+### Y-24: Quoted addresses inject ESMTP parameters past the block list
+
+- **Where:** `mail.go` (`headToAddy` returns the unquoted addr-spec,
+  `destBlocked`, `client.Rcpt`), `server.go` (`remailerFoo`).
+- **Impact:**
+  - `"victim@blocked.example> NOTIFY=NEVER ORCPT=rfc822;x"@b.example` is sent
+    as `RCPT TO:<victim@blocked.example> NOTIFY=NEVER ORCPT=rfc822;x@b.example>`.
+    A DSN-capable MTA reads that as recipient `victim@blocked.example`.
+  - It gets past the destination block list (Y-08) and the per-address
+    `remailer-*` reply limit (Y-19).
+  - The `"x@y"@relay` and `x%y@relay` forms also pass the block list.
+- **Fix:**
+  - Accept only dot-atom local parts. Reject `<>()[]\",;:`, whitespace,
+    control characters, more than one `@` (and optionally `%` and `!`), in
+    `headToAddy` and in `remailerFoo`.
+  - Check the block list against exactly the string passed to `Rcpt`.
+- **Found:** review 2, M-1 (plus M-16: matching is exact only). Tests:
+  `TestReviewRcptInjectionBypassesDestBlock`, `TestReviewDestBlockForms`.
+  How real MTAs parse it is untested.
+- **Status:** fixed in `9d0a28c` (branch `fix/24-rcpt-address`, #35). Tests:
+  `TestMailPoolFileQuotedRecipient`, `TestRemailerFooQuotedFrom`,
+  `TestValidRecipient`.
+
+### Y-25: A bare CR reaches the SMTP wire
+
+- **Where:** `mail.go` (`assemble`); `net/mail` keeps a lone `\r` inside
+  header values.
+- **Impact:**
+  - `Reply-To: x@example\rFrom: ceo@bank.example` passes the exit header
+    allow-list as a single Reply-To. A receiver that treats a lone CR as a
+    line end sees an extra From.
+  - `\r.\r` in the body passes Go's dot-stuffing unchanged. That's the
+    precondition for SMTP smuggling against receivers that accept
+    `<CR>.<CR>` as end of data.
+- **Fix:**
+  - Reject header values containing CR or NUL.
+  - Normalise a lone CR in the body to CRLF.
+  - Do the same in `stripClientHeaders`.
+- **Found:** review 2, M-2. Tests: `TestReviewBareCRReachesWire`,
+  `TestReviewBareCRHeaderOnWire`. No smuggling payload was written.
+- **Status:** fixed in `f683da2` (branch `fix/25-bare-cr`, #36). Tests:
+  `TestMailPoolFileBareCRBody`, `TestMailPoolFileBareCRHeader`,
+  `TestStripClientHeadersBareCR`.
+
+### Y-26: Pipe mode ignores the block list and drops Bcc
+
+- **Where:** `mail.go` (`execSend` never gets `sendTo`); the docs suggest
+  `/usr/sbin/sendmail -t`.
+- **Impact:** with `sendmail -t`, recipients come from the headers.
+  - Blocked recipients are still in To/Cc and get the mail, so the opt-out
+    doesn't work at all in pipe mode.
+  - `filterHeaders` has removed Bcc, so Bcc recipients get nothing.
+- **Fix:**
+  - Pass the recipients as arguments (`sendmail -i -- addr…`).
+  - Stop documenting `-t`, and warn in `nagOperator` when the pipe command
+    contains it.
+- **Found:** review 2, M-3. Test: `TestReviewPipeIgnoresBlockListAndBcc`.
+- **Status:** fixed in `1be63d6`, `ba4e52e` (branch `fix/26-pipe-recipients`,
+  #37). Tests: `TestMailPoolFilePipeDashT`, `TestMailPoolFilePipeRecipients`,
+  `TestPipeReadsHeaders`.
+
+### Y-27: A message can stay in the pool forever
+
+- **Where:** `pool.go` (`writePlainToPool`, `writeMessageToPool`),
+  `utils.go` (`writeInternalHeader`), `mail.go` (`mailPoolFile`).
+- **Impact:**
+  - A plaintext that starts with a space or tab continues the internal
+    `Yamn-Pooled-Date` header. The date no longer parses, and the file is
+    kept on every run: it's never sent and never expires.
+  - Disk use grows without bound.
+  - Stuck files count toward `pool.size`, so a sender who plants some can
+    flush real messages through almost alone. That weakens the mixing.
+- **Fix:**
+  - Keep the pooled date out of sender-controlled data (file name or mtime),
+    or reject plaintext starting with SP/HT.
+  - Treat an unparseable date as "expire by mtime", never "keep".
+- **Found:** review 2, M-4. Test: `TestReviewPooledDateContinuationSticks`.
+- **Status:** fixed in `7e4d2ef` (branch `fix/27-pooled-date`, #40). Tests:
+  `TestPooledDateContinuation`, `TestPooledDateFallback`.
+
+### Y-28: A slow mail server blocks the remailer (tarpit)
+
+- **Where:** `pool.go` (`processMail` calls `remailerFoo` synchronously),
+  `server.go` (`remailerFoo`: a reply is recorded only after a successful
+  send), `pool.go` (the outbound pool sends one file at a time), `mail.go`
+  (30 s dial plus 5 min session deadline).
+- **Impact:**
+  - A `remailer-help` request "from" an address whose mail server never
+    answers blocks the main loop, and with it all inbound processing, for up
+    to 5.5 minutes.
+  - The failure isn't recorded, so the same address can repeat it. About 12
+    mails an hour stop the remailer.
+  - Exit mail to such domains stalls the serial outbound pool in the same
+    way, for 28 days of retries.
+- **Fix:**
+  - Pool the `remailer-*` replies like other outbound mail.
+  - Record the attempt before sending.
+  - Give the outbound pool per-destination backoff or concurrent workers.
+- **Found:** review 2, M-5. Test: `TestReviewFooTarpitBlocksMainLoop`.
+- **Status:** fixed in `f52684e` (branch `fix/28-tarpit`, #45). Tests:
+  `TestPoolSendConcurrent`, `TestRemailerFooDoesNotBlock`,
+  `TestRemailerFooFailedSendCounted`.
+
+### Y-29: Data files are read from the current directory without --dir
+
+- **Where:** `config/config.go` (defaults are plain names; `resolvePaths`
+  only applies with `--dir`), `client.go` (`timedURLFetch`).
+- **Impact:**
+  - Without `--dir`, the keyring, stats, per-pinger files and pool come from
+    the current directory. That's Y-13 for data files: a planted
+    `pubring.mix` there is used.
+  - With `--config` alone, paths are relative to the current directory, not
+    to the config file (the README suggests "--dir … or --config").
+  - A file with an mtime in the future (tar and zip keep mtimes) is never
+    downloaded again.
+- **Fix:**
+  - Without `--dir`, resolve paths against the config file's directory; with
+    no config at all, use `~/.yamn`.
+  - Treat a future mtime as stale.
+- **Found:** review 2, K-1. Tests: `TestReviewPathEdgeCases`,
+  `TestReviewFutureMtimeNeverFetched`.
+- **Status:** open.
+
+### Y-30: `distance` is ignored for hops named in --chain
+
+- **Where:** `chain.go` (`makeChain`): the first random hop ignores fixed hops
+  to its left, and fixed hops are kept as names while candidates are
+  addresses.
+- **Impact:** a remailer can be used in two adjacent hops.
+  - `alpha,*,*` repeated alpha in 106 of 400 runs.
+  - `*,alpha,*` repeated it in about 197 of 400.
+  - `*,*,exit` (the README example) is not affected.
+- **Fix:** resolve every fixed hop to its address first, then exclude hops
+  within `distance` on both sides.
+- **Found:** review 2, K-2. Tests: `TestReviewDistanceWithNamedHop`,
+  `TestReviewDistanceNamedMiddle`.
+- **Status:** fixed in `d318037` (branch `fix/30-chain-distance`, #54). Tests:
+  `TestChainDistanceNamedHops`, `TestChainNamedHopsUnchanged`,
+  `TestChainNegativeDistance`.
+
+### Y-31: Messages over 255 chunks are truncated
+
+- **Where:** `client.go` (`mixprep`), `packet.go` (`setNumChunks` stores a
+  `uint8`; `setChunkNum` panics).
+- **Impact:**
+  - At about 4.5 MB the chunk count wraps: part of the message is pooled
+    (with 257 chunks, chunk 1 as a complete 1-chunk message), then the client
+    panics.
+  - The exit delivers a truncated message, and a retry delivers the part
+    again.
+  - `readMessage` has no size limit.
+- **Fix:** reject more than 255 chunks (or a configurable limit) before
+  anything is pooled, and return errors instead of panicking.
+- **Found:** review 2, K-3. Test: `TestReviewTooManyChunks` (17,940 of
+  4,585,060 bytes delivered).
+- **Status:** open.
+
+### Y-32: Merged stats have no quorum
+
+- **Where:** `keymgr/merge.go` (`mergeStatsSources`, `writeStats`).
+- **Impact:**
+  - With two fresh pingers, one decides the "worse" value of the median. It
+    can set any remailer to 0% uptime and so remove it from random
+    selection.
+  - With one fresh pinger (the others older than `stale_hours`), that pinger
+    decides all stats.
+  - Stats dated in the future count as fresh.
+- **Fix:**
+  - Require `key_quorum` stats sources per remailer, falling back to older
+    ones to reach that number.
+  - With an even count, take the true median.
+  - Reject a `Generated` time in the future.
+- **Found:** review 2, K-4. Test: `TestReviewStatsOnePingerDecides`.
+- **Status:** fixed in `acc3a29` (branch `fix/32-stats-quorum`, #52). Tests:
+  `TestMedian`, `TestMergeStatsQuorum`.
+
 ## Low
 
 ### Y-14: Biased shuffle
@@ -401,3 +642,340 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   files section with `--dir` after reading the file, and keeps absolute
   paths. Tests: `TestDirRelativePaths`, `TestResolvePathsCoversFiles` in
   `config/config_test.go`.
+
+### Y-33: Pool and chunk files are not written atomically
+
+- **Where:** `pool.go` (`writeMessageToPool`, `writePlainToPool`),
+  `chunker.go` (`Assemble`), `mbox.go` (`--import` into a live pool),
+  `mail.go` (outfile).
+- **Impact:**
+  - Files get their final `m…` name before they're complete, while the
+    outbound goroutine reads the same directory. A header-only file is
+    deleted as "No email recipients found"; a partly written one is sent
+    truncated.
+  - Write and Close errors are ignored, nothing is fsynced, and `Assemble`
+    skips missing chunks. The Maildir message has already been purged, so
+    the message is lost.
+  - Assembled plaintext and outfile files are created with 0666&umask
+    instead of 0600.
+- **Fix:** write to a temporary name (0600, O_EXCL), check every write, fsync,
+  rename. `Assemble` fails and keeps the chunks.
+- **Found:** review 2, M-7, C-3 and M-14. Tests:
+  `TestReviewPartialAssembledFileVisible`, `TestReviewC3HeaderOnlyFileDeleted`,
+  `TestReviewPartialPoolFileDeleted`.
+- **Status:** fixed in `18fa9b6` (branch `fix/33-atomic-pool`, #41). Tests:
+  `TestAssembleMissingChunk`, `TestForget`, `TestPoolFileModes`,
+  `TestPoolReaderSeesNoPartialFile`, `TestProcessMailKeepsMailOnPoolError`.
+
+### Y-34: Partial chunks have no storage limit
+
+- **Where:** `server.go` (`smtpMethod`), `chunker.go` (`Insert`,
+  `Housekeep`); defaults `max_size: 0`, `chunk_expire: 60`.
+- **Impact:**
+  - A sender can make an exit keep about 17.9 kB of plaintext per packet for
+    60 days by sending chunks of messages that never complete.
+  - A duplicate chunk orphans the earlier file for 120 days and refreshes the
+    record's expiry.
+  - Only the sender can do this, since the message ID is encrypted.
+- **Fix:**
+  - Cap the total size and number of partial chunks.
+  - Shorter default expiry (Mixmaster uses about 7 days).
+  - Keep the first copy of a duplicate.
+  - Don't extend the expiry.
+- **Found:** review 2, C-4. Tests: `TestReviewC4DuplicateChunkOrphansFile`,
+  `TestReviewC4PartialChunksUnbounded`.
+- **Status:** fixed in `357ca71` (branch `fix/34-chunk-limits`, #42). Tests:
+  `TestChunkExpiryNotExtended`, `TestDuplicateChunkKeepsFirst`,
+  `TestPartialChunkLimit`.
+
+### Y-35: A running remailer keeps keys that left the keyring
+
+- **Where:** `keymgr/public.go` (`ImportPubring` only adds; `KeyRefresh`
+  panics on a missing file), `server.go` (hourly refresh).
+- **Impact:**
+  - Keys removed from `pubring.mix` (a remailer that left, or one that lost
+    the Y-03 quorum) stay in a running daemon. They remain valid next hops
+    (`checkNextHop`) and dummy and randhop targets.
+  - Keys that expired after the import stay in use, so a randhop of real mail
+    can be encrypted to a key the next remailer has already purged.
+  - A remailer started without `pubring.mix` panics at its first hourly run.
+- **Fix:** import into a fresh `Pubring` and swap it in, check `until` when
+  using keys, and treat a missing file as "nothing to refresh".
+- **Found:** review 2, C-6 and K-10. Tests: `TestReviewC6StaleKeysKept`,
+  `TestReviewReimportKeepsRemovedKeys`, `TestReviewKeyRefreshPanicsOnMissingFile`.
+- **Status:** fixed in `10bdce7` (branch `fix/35-stale-keys`, #49). Tests:
+  `TestExpiredKeyNotUsed`, `TestKeyRefreshMissingFile`,
+  `TestReimportDropsRemovedKeys`, `TestReimportRemovedNextHop`.
+
+### Y-36: The advertised key is not checked against the secret keyring
+
+- **Where:** `server.go` (`generateKeypair` publishes before writing the
+  secret; `refreshPubkey`), `keymgr/secret.go` (`WriteMyKey`,
+  `ImportSecring` skips keys "not valid yet").
+- **Impact:** after a crash between the two writes, a key generated with the
+  clock ahead, or a mismatched restore, `key.txt` advertises a key the
+  remailer can't decrypt. It keeps doing so while any other key is active.
+- **Fix:** write the secret first, and check the advertised keyid against the
+  secret keyring at startup.
+- **Found:** review 2, C-2. Test: `TestReviewC2AdvertisedKeyNotInSecring`.
+- **Status:** fixed in `facd846` (branch `fix/36-advertised-key`, #48). Tests:
+  `TestGenerateKeypairSecretFirst`, `TestStartupKeysAdvertisedNotInSecring`,
+  `TestStartupKeysKeepsGoodKey`, `TestStartupKeysPublicKeyMismatch`.
+
+### Y-37: Secret keyring handling: purge, crash safety, dates
+
+- **Where:** `keymgr/secret.go` (`Purge`, `ImportSecring`).
+- **Impact:**
+  - `Purge` leaves the key it just purged in `secring.mix.tmp` until the next
+    purge, which weakens forward secrecy.
+  - It renames the secring away before writing the new one, without sync. A
+    disk-full panic followed by a restart can lose all keys.
+  - It writes dates in local time, so `Expires` can be a day off from
+    `key.txt`.
+  - `ImportSecring` accepts a secret-key line with trailing non-hex
+    (`continue` missing).
+- **Fix:**
+  - Write `secring.mix.new`, Sync, rename over the original, and drop the
+    `.tmp` copy.
+  - Use UTC.
+  - Add the `continue`.
+- **Found:** review 2, C-5 and C-8. Tests: `TestReviewC5PurgeKeepsPurgedKeyInTmp`,
+  `TestReviewC5PurgeWritesLocalDates`, `TestReviewC8SecretKeyHexNotChecked`.
+- **Status:** fixed in `ec384eb` (branch `fix/37-secring`, #47). Tests:
+  `TestImportSecringBadSecretHex`, `TestPurgeRemovesPurgedKey`,
+  `TestPurgeWritesUTCDates`, `TestWriteFileSyncFailureKeepsOriginal`.
+
+### Y-38: One corrupt idlog entry stops every startup
+
+- **Where:** `idlog/idlog.go` (`Expire` panics on a `GobDecode` error);
+  `Expire` runs at startup and at midnight, outside `decodeSafely`.
+- **Impact:** one corrupt LevelDB value crashes every start. The obvious
+  workaround, deleting the idlog, reopens the replay window.
+- **Also:** errors are compared as strings (`"leveldb: not found"`).
+- **Fix:** log and delete the bad entry, and use
+  `errors.Is(err, leveldb.ErrNotFound)`.
+- **Found:** review 2, C-7. Test: `TestReviewC7ExpirePanicsOnBadValue`.
+- **Status:** fixed in `33a7b1f` (branch `fix/38-idlog-expire`, #46). Tests:
+  `TestExpireBadValue`.
+
+### Y-39: Multi-pinger merge: quorum shrinks, ties go to the freshest pinger
+
+- **Where:** `keymgr/merge.go` (`res.Quorum = min(quorum, usable)`;
+  `pickHeader`).
+- **Impact:**
+  - On a first run, while no pinger files exist yet, failing HTTPS pingers
+    lower the quorum to the ones that answer (fail-open, logged as a
+    warning).
+  - On a header tie, the pinger with the newest (or future-dated) stats sets
+    caps and dates: it can turn a middleman into an exit, or keep an expired
+    `until`.
+- **Fix:**
+  - Don't go below `key_quorum` unless explicitly allowed.
+  - Warn about `http://` pinger URLs.
+  - Decide ties per field, conservatively: `M` if any source has it, the
+    earliest `until`.
+- **Found:** review 2, K-5 and K-6. Test: `TestReviewHeaderTieFutureStats`.
+- **Status:** fixed in `e03aacd` (branch `fix/39-merge-quorum`, #53). Tests:
+  `TestMergeHeaderTie`, `TestMergeQuorumNotLowered`,
+  `TestRefreshKeyringPlainHTTPWarning`.
+
+### Y-40: Downloads: weaker checks than the parsers, https→http redirects
+
+- **Where:** `keymgr/check.go` (`CheckPubring`, `CheckStats`), `utils.go`
+  (`httpGet` uses the default `CheckRedirect`).
+- **Impact:**
+  - A truncated stats table, a keyring with a line over 64 KB, or a keyring
+    with no valid key passes the check and replaces a working file, so Y-11
+    is incomplete.
+  - An https URL can be redirected to plain http.
+- **Fix:** validate with `readStats`/`readPubring` and require a key valid now,
+  and refuse redirects that downgrade to http.
+- **Found:** review 2, K-11 and M-11. Tests: `TestReviewCheckWeakerThanParser`,
+  `TestReviewHTTPGetDowngradeRedirect`.
+- **Status:** fixed in `db79575` (branch `fix/40-download-checks`, #51).
+  Tests: `TestCheckLikeParser`, `TestHTTPGetDowngradeRedirect`.
+
+### Y-41: Delivery failures: 5xx retried for 28 days, MX fallback
+
+- **Where:** `mail.go` (`mailPoolFile`, `smtpSend`, `mxLookup`), `pool.go`.
+- **Impact:**
+  - A permanent 5xx rejection is retried every pool run until `max_age`
+    (28 days), with no bounce. One rejected RCPT stops delivery to all
+    recipients.
+  - On Null MX (RFC 7505), SERVFAIL and NXDOMAIN, the MX lookup falls back to
+    the domain's A record.
+- **Fix:**
+  - Drop or dead-letter on 5xx; skip rejected RCPTs; retry only 4xx and
+    network errors.
+  - Treat Null MX as permanent and keep the file on temporary DNS errors.
+- **Found:** review 2, M-6 and M-8. Tests: `TestReviewPermanentFailureKept`,
+  `TestReviewMXLookup`.
+- **Status:** fixed in `a32d44a`, `2381a01` (branch
+  `fix/41-delivery-failures`, #43). Tests: `TestDeliveryFailures`,
+  `TestDeliveryFailuresDirectMX`, `TestMXLookupFailures`.
+
+### Y-42: `remailer-*` replies skip the block list and lack Date/Message-ID
+
+- **Where:** `server.go` (`remailerFoo`), `quickmail/quickmail.go`.
+- **Impact:** blocked addresses still get help, key and conf replies. Replies
+  have only From, To and Subject, so some MTAs reject or spam-score them.
+- **Fix:** check `destBlocked`, and add Date, Message-ID, MIME-Version and
+  Content-Type.
+- **Found:** review 2, M-9. Tests: `TestReviewFooIgnoresDestBlock`,
+  `TestReviewFooReplyHeaders`.
+- **Status:** fixed in `b937780` (branch `fix/42-reply-headers`, #38). Tests:
+  `TestRemailerFooDestBlock`, `TestRemailerFooReplyHeaders`.
+
+### Y-43: No limit on recipients per exit message
+
+- **Where:** `mail.go` (`mailPoolFile`). Upstream behaves the same.
+- **Impact:** one anonymous message can go to any number of To/Cc/Bcc
+  addresses. 500 addresses gave 500 RCPT commands, which makes the exit a
+  cheap spam amplifier.
+- **Fix:** `mail.max_recipients` (default around 10), announced in
+  `remailer-conf`.
+- **Found:** review 2, M-10. Test: `TestReviewRecipientFanOut`.
+- **Status:** fixed in `7107b69` (branch `fix/43-max-recipients`, #39). Tests:
+  `TestMailPoolFileMaxRecipients`, `TestRemailerConfMaxRecipients`.
+
+### Y-44: No pool lock: `-S` next to a `--daemon` remailer sends twice
+
+- **Where:** `pool.go` (`poolOutboundSend` only checks its own process's
+  flags).
+- **Impact:** a manual `yamn -S` and a remailer started with `--daemon` can
+  both deliver the same pool file before either removes it.
+- **Fix:** flock `<pooldir>/.lock`, or claim each file by renaming it before
+  sending.
+- **Found:** review 2, M-12 (from reading the code).
+- **Status:** fixed in `6545c02` (branch `fix/44-pool-lock`, #44). Tests:
+  `TestPoolBatchLocked`, `TestPoolFlushLocked`.
+
+### Y-45: Config: silent fallbacks, unknown keys, no value checks
+
+- **Where:** `config/config.go` (`findConfig`, `ParseConfig`).
+- **Impact:**
+  - A missing `--config` or `$YAMNCFG` file silently falls back to
+    `~/yamn.yml`, `/etc/yamn.yml` or the defaults.
+  - Misspelt keys (`key_qorum`, `pinger:`) are ignored, and `files.config` in
+    YAML overrides the config file name.
+  - A negative `stats.distance` panics. `minlat`/`maxlat`, `minrel` and
+    `key_quorum` aren't checked either.
+- **Fix:**
+  - Error out when an explicitly given config can't be read.
+  - Decode with `KnownFields(true)` (or warn), and tag `Config` with
+    `yaml:"-"`.
+  - Validate the values on load.
+- **Found:** review 2, K-7, K-8 and K-14. Tests: `TestReviewMissingConfigFallsBack`,
+  `TestReviewUnknownKeys`, `TestReviewNegativeDistance`.
+- **Status:** open.
+
+### Y-46: Client: exit status and argument checks
+
+- **Where:** `client.go` (`mixprep`), `chain.go` (`makeChain` calls
+  `os.Exit`).
+- **Impact:**
+  - An unknown remailer or a failed import sends nothing and exits 0.
+  - When the dummy's chain fails after the message was pooled, the client
+    exits 1, so the user may send again.
+  - A `makeChain` failure on copy 2..n leaves earlier copies pooled.
+  - A message without recipients is pooled and dropped at the exit.
+  - Chain elements aren't trimmed (`"*, *"` fails), and a third argument is
+    ignored.
+- **Fix:**
+  - `makeChain` returns errors.
+  - Encode everything first, then pool it.
+  - A failed dummy is only a warning.
+  - Refuse a message without recipients; trim and check the arguments.
+- **Found:** review 2, K-9, K-15 and K-16. Tests: `TestReviewChainErrorExitZero`,
+  `TestReviewDummyExitStatus`, `TestReviewNoRecipient`, `TestReviewChainWithSpaces`.
+- **Status:** open.
+
+### Y-47: The client keeps the From address and Reply-To
+
+- **Where:** `client.go` (`stripClientHeaders`), `mail.go` (`parseFrom` with
+  `custom_from`).
+- **Impact:** a message written in a mail program carries the real From and
+  often Reply-To. Y-20 strips only the display name. `custom_from` exits
+  deliver the address, and every exit delivers Reply-To.
+- **Fix:** a design decision. Either drop From and Reply-To unless
+  `--keep-headers` (or a `--from` pseudonym) is given, or warn clearly that
+  they are sent.
+- **Found:** review 2, K-12. Test: `TestReviewFromAddressKept`.
+- **Status:** open.
+
+### Y-48: Logs reveal recipients and chains
+
+- **Where:** `mail.go` (SMTP replies, MX hosts and blocked recipients at
+  warn/info), `pool.go` (From and Subject of rejected mail), `client.go`
+  (chains at info), `yamn.go` (the log file is created 0644; `--debug`
+  prints the SMTP password).
+- **Impact:** logs on exits and clients can link traffic with timestamps.
+- **Fix:**
+  - Log file names and SMTP codes, with details at trace only.
+  - Create the log file 0600.
+  - Mask the password in `--debug`.
+- **Found:** review 2, M-13 and K-18 (from reading the code).
+- **Status:** open.
+
+### Y-49: The keyring is fetched at send time
+
+- **Where:** `client.go` (`refreshKeyring(false)` in `mixprep`), `pingers.go`.
+- **Impact:** when the files are older than an hour, every `yamn -m` contacts
+  each pinger right before sending. That shows the client's IP and send time,
+  and blocks for up to 30 s per pinger that's down.
+- **Fix:** recommend a scheduled `--refresh` with jitter, or add an option to
+  never fetch at send time.
+- **Found:** review 2, K-13 (from reading the code).
+- **Status:** open.
+
+## Info
+
+### Y-50: Smaller mail issues
+
+- **`.onion`:**
+  - `onion_relay` can't work with Go's pure resolver;
+  - the `.onion` check is case-sensitive;
+  - `.onion` recipients are retried for 28 days.
+- **Block list:** matching is exact only (no subdomains, no IP literals).
+- **Maildir:** a `Maildir.Unseen` error leaves messages stuck in `cur/`.
+- **Config and protocol details:**
+  - `require_tls` without `usetls` fails every delivery, with no warning.
+  - EHLO is `localhost`.
+  - Date and Message-ID use local time, so the time zone is visible.
+  - The pipe command has no timeout.
+  - `uniqueStrings` is case-sensitive.
+  - The `remailer-conf` reply has an empty "filtered headers" line.
+- **`.rejected`:** keeps bounces that quote delivered plaintext for 28 days.
+- **Display names:** they can be spoofed under `custom_from: false`
+  (`"security@bank" <remailer@…>`).
+- **Found:** review 2, M-15 to M-20.
+- **Status:** open.
+
+### Y-51: Smaller client and documentation issues
+
+- The dummy follows `--chain`, i.e. the real message's path, and not
+  `stats.chain`.
+- Documentation and config mismatches:
+  - the man page SYNOPSIS says `[-s]` (it should be `-S`);
+  - `~` in YAML paths isn't expanded;
+  - the fallback to stale stats isn't documented.
+- `linebreaker` with a line length of 0 would recurse forever (only 64 is
+  used).
+- **Found:** review 2, K-17 and K-19.
+- **Status:** open.
+
+### Y-52: Crypto notes (no action needed)
+
+- **Malleable bits:** only the 8 random padding bytes of the top header and
+  the top bit of the sender's X25519 key can be changed without detection
+  (exhaustive bit-flip test). A modified copy is a replay, and the top
+  header is discarded at that hop.
+- **Anti-tag comparison:** it uses `bytes.Equal`. There's no secret
+  involved, so `subtle.ConstantTimeCompare` would only be hygiene.
+- **Interop:** the packet format is unchanged from upstream.
+  - Upstream 0.2.7 exits now assemble this fork's multi-chunk messages, but
+    insert `Yamn-Pooled-Date` lines into the body (upstream's half of Y-05).
+  - Upstream clients reuse one packet ID for all chunks, so every exit drops
+    their chunks 2+.
+- **Found:** review 2, C-9 to C-11.
+- **Status:** no action needed.
