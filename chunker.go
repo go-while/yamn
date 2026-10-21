@@ -65,21 +65,45 @@ func chunkItems(record []byte) (stamp string, items []string) {
 	return fields[0], fields[1:]
 }
 
-// Insert writes an entry to the DB
+// Insert writes an entry to the DB.  A new entry expires after expireDays;
+// updating an entry keeps its expiry date, so later chunks can't extend it.
 func (chunk *Chunk) Insert(messageid []byte, items []string) {
 	if chunk.expireDays == 0 {
 		panic("Expiry duration not defined")
 	}
-	t := time.Now().Add(chunk.expireDays)
+	stamp := time.Now().Add(chunk.expireDays).Format("20060102")
+	if old, err := chunk.db.Get(messageid, nil); err == nil {
+		stamp, _ = chunkItems(old)
+	}
 	chunk.db.Put(
 		messageid,
 		[]byte(fmt.Sprintf(
 			"%s,%s",
-			t.Format("20060102"),
+			stamp,
 			strings.Join(items, ","),
 		)),
 		nil,
 	)
+}
+
+// countEmpty returns the number of empty slots (chunks not received yet)
+// in items.
+func countEmpty(items []string) (n int) {
+	for _, item := range items {
+		if item == "" {
+			n++
+		}
+	}
+	return
+}
+
+// Count returns the number of partial chunk files in the pool.
+func (chunk *Chunk) Count() int {
+	files, err := readDir(cfg.Files.Pooldir, "p")
+	if err != nil {
+		return 0
+	}
+	return len(files)
 }
 
 // IsPopulated returns true if all elements of items are populated

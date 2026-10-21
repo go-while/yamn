@@ -593,27 +593,43 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 		return
 	}
 	// We're an exit and this is a multi-chunk message
-	chunkFilename := writePlainToPool(plain, "p")
-	log.Tracef(
-		"Pooled partial chunk. MsgID=%x, Num=%d, "+
-			"Parts=%d, Filename=%s",
-		final.getMessageID(),
-		final.getChunkNum(),
-		final.getNumChunks(),
-		chunkFilename,
-	)
 	// This saves losts of -1's as slices start at 0 and chunks at 1
 	cslot := final.getChunkNum() - 1
-	// Test that the slot for this chunk is empty
+	// Keep the first copy of a chunk.  Storing another one would orphan
+	// the first file and extend the record's life.
 	if chunks[cslot] != "" {
-		log.Warnf(
-			"Duplicate chunk %d in MsgID: %x",
-			final.chunkNum,
-			final.messageID,
+		log.Infof(
+			"Duplicate chunk %d in MsgID %x, keeping the first copy",
+			final.getChunkNum(),
+			final.getMessageID(),
 		)
+		if !IsPopulated(chunks) {
+			return
+		}
+		// The record is complete, so an earlier assembly failed.
+		// Try again below.
+	} else {
+		// Limit the space taken by messages that never complete.  A
+		// chunk that completes its message is always accepted, as
+		// assembling it frees space.
+		if cfg.Remailer.ChunkLimit > 0 && countEmpty(chunks) > 1 {
+			if n := ChunkDb.Count(); n >= cfg.Remailer.ChunkLimit {
+				err = fmt.Errorf("refusing chunk: %d partial chunks stored, chunk_limit is %d", n, cfg.Remailer.ChunkLimit)
+				return
+			}
+		}
+		chunkFilename := writePlainToPool(plain, "p")
+		log.Tracef(
+			"Pooled partial chunk. MsgID=%x, Num=%d, "+
+				"Parts=%d, Filename=%s",
+			final.getMessageID(),
+			final.getChunkNum(),
+			final.getNumChunks(),
+			chunkFilename,
+		)
+		// Insert the new chunk into the slice
+		chunks[cslot] = chunkFilename
 	}
-	// Insert the new chunk into the slice
-	chunks[cslot] = chunkFilename
 	log.Tracef(
 		"Chunk state: %s",
 		strings.Join(chunks, ","),
