@@ -60,6 +60,12 @@ func (i *IDLog) Unique(key []byte) (unique bool) {
 	return
 }
 
+// Forget deletes key, so a packet that couldn't be processed because of a
+// local error can be processed again.
+func (i *IDLog) Forget(key []byte) {
+	i.db.Delete(key, nil)
+}
+
 func (i *IDLog) Expire() (count, deleted int) {
 	var err error
 	now := time.Now()

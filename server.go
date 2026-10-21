@@ -5,7 +5,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/mail"
 	"os"
 	"path"
@@ -232,6 +231,7 @@ func chunkClean() {
 			cexp,
 		)
 	}
+	cleanPoolTemp()
 	fret, fdel := ChunkDb.Housekeep()
 	if fdel > 0 {
 		log.Infof(
@@ -249,6 +249,15 @@ func nagOperator() {
 			"mail.message_domain %q isn't a valid domain and is ignored. "+
 				"Message-IDs use the domain of remailer.address.",
 			cfg.Mail.MessageDomain,
+		)
+	}
+	if pipeReadsHeaders(cfg.Mail.Pipe) {
+		log.Warnf(
+			"mail.pipe %q reads the recipients from the headers (-t), "+
+				"so yamn can't pass them: the block list doesn't apply "+
+				"and Bcc recipients get nothing. Remove the -t; yamn "+
+				"then passes the recipients as arguments.",
+			cfg.Mail.Pipe,
 		)
 	}
 	// Complain about excessively small loop values.
@@ -459,6 +468,13 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 		err = errDuplicatePacket
 		return
 	}
+	defer func() {
+		// A local write failure isn't the packet's fault.  Forget its ID,
+		// so the copy that's kept can be processed again.
+		if errors.Is(err, errPoolWrite) {
+			IDDb.Forget(slotData.getPacketID())
+		}
+	}()
 	if slotData.getPacketType() == 0 {
 		d.shiftHeaders()
 		// Decode Intermediate
@@ -474,13 +490,7 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 			log.Info(
 				"Message loops back to us.",
 				"Storing in pool instead of sending it.")
-			outfileName := randPoolFilename("i")
-			err = ioutil.WriteFile(
-				outfileName,
-				d.getPayload(),
-				0600,
-			)
-			if err != nil {
+			if _, err = writePoolFile("i", d.getPayload()); err != nil {
 				log.Warnf("Failed to write to pool: %s", err)
 				return
 			}
@@ -529,7 +539,7 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 				if final.numChunks == 1 {
 					// Need to randhop as we're not an exit
 					// remailer
-					randhop(plain)
+					err = randhop(plain)
 				} else {
 					log.Warn(
 						"Randhopping doesn't support " +
@@ -568,7 +578,9 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 			return
 		}
 		// If this is a single chunk message, pool it and get out.
-		writePlainToPool(plain, "m")
+		if _, err = writePlainToPool(plain, "m"); err != nil {
+			return
+		}
 		stats.outPlain.Add(1)
 		return
 	}
@@ -593,27 +605,46 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 		return
 	}
 	// We're an exit and this is a multi-chunk message
-	chunkFilename := writePlainToPool(plain, "p")
-	log.Tracef(
-		"Pooled partial chunk. MsgID=%x, Num=%d, "+
-			"Parts=%d, Filename=%s",
-		final.getMessageID(),
-		final.getChunkNum(),
-		final.getNumChunks(),
-		chunkFilename,
-	)
 	// This saves losts of -1's as slices start at 0 and chunks at 1
 	cslot := final.getChunkNum() - 1
-	// Test that the slot for this chunk is empty
+	// Keep the first copy of a chunk.  Storing another one would orphan
+	// the first file and extend the record's life.
 	if chunks[cslot] != "" {
-		log.Warnf(
-			"Duplicate chunk %d in MsgID: %x",
-			final.chunkNum,
-			final.messageID,
+		log.Infof(
+			"Duplicate chunk %d in MsgID %x, keeping the first copy",
+			final.getChunkNum(),
+			final.getMessageID(),
 		)
+		if !IsPopulated(chunks) {
+			return
+		}
+		// The record is complete, so an earlier assembly failed.
+		// Try again below.
+	} else {
+		// Limit the space taken by messages that never complete.  A
+		// chunk that completes its message is always accepted, as
+		// assembling it frees space.
+		if cfg.Remailer.ChunkLimit > 0 && countEmpty(chunks) > 1 {
+			if n := ChunkDb.Count(); n >= cfg.Remailer.ChunkLimit {
+				err = fmt.Errorf("refusing chunk: %d partial chunks stored, chunk_limit is %d", n, cfg.Remailer.ChunkLimit)
+				return
+			}
+		}
+		var chunkFilename string
+		if chunkFilename, err = writePlainToPool(plain, "p"); err != nil {
+			return
+		}
+		log.Tracef(
+			"Pooled partial chunk. MsgID=%x, Num=%d, "+
+				"Parts=%d, Filename=%s",
+			final.getMessageID(),
+			final.getChunkNum(),
+			final.getNumChunks(),
+			chunkFilename,
+		)
+		// Insert the new chunk into the slice
+		chunks[cslot] = chunkFilename
 	}
-	// Insert the new chunk into the slice
-	chunks[cslot] = chunkFilename
 	log.Tracef(
 		"Chunk state: %s",
 		strings.Join(chunks, ","),
@@ -626,17 +657,17 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 			err = fmt.Errorf("assembled message of %d bytes exceeds max_size of %d kB", size, cfg.Remailer.MaxSize)
 			return
 		}
-		newPoolFile := randPoolFilename("m")
-		log.Tracef(
-			"Assembling chunked message into %s",
-			newPoolFile,
-		)
-		err = ChunkDb.Assemble(newPoolFile, chunks)
+		var newPoolFile string
+		newPoolFile, err = ChunkDb.Assemble(chunks)
 		if err != nil {
-			log.Warnf("Chunk assembly failed: %s", err)
-			// Don't return here or the bad chunk will remain in
-			// the DB.
+			// Keep the record and its chunks.  After a write error
+			// the packet is processed again; otherwise they expire
+			// after chunk_expire days.
+			ChunkDb.Insert(final.getMessageID(), chunks)
+			err = fmt.Errorf("chunk assembly failed: %w", err)
+			return
 		}
+		log.Tracef("Assembled chunked message into %s", newPoolFile)
 		// Now the message is assembled into the Pool, the DB record
 		// can be deleted
 		ChunkDb.Delete(final.getMessageID())
@@ -649,21 +680,21 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 	return
 }
 
-// randhop is a simplified client function that does single-hop encodings
-func randhop(plainMsg []byte) {
-	var err error
+// randhop is a simplified client function that does single-hop encodings.
+// Only a failure to pool the result is returned; other problems drop the
+// message.
+func randhop(plainMsg []byte) error {
 	if len(plainMsg) == 0 {
 		log.Info("Zero-byte message during randhop, ignoring it.")
-		return
+		return nil
 	}
 	// Make a single hop chain with a random node
 	inChain := []string{"*"}
 	final := newSlotFinal()
-	var chain []string
-	chain, err = makeChain(inChain)
+	chain, err := makeChain(inChain)
 	if err != nil {
 		log.Warn(err)
-		return
+		return nil
 	}
 	sendTo := chain[0]
 	if len(chain) != 1 {
@@ -673,10 +704,10 @@ func randhop(plainMsg []byte) {
 	log.Tracef("Performing a random hop to Exit Remailer: %s.", chain[0])
 	yamnMsg := encodeMsg(plainMsg, chain, *final)
 	if err = writeMessageToPool(sendTo, yamnMsg); err != nil {
-		log.Warn(err)
-		return
+		return err
 	}
 	stats.outRandhop.Add(1)
+	return nil
 }
 
 // remailerFoo responds to requests for remailer-* info
@@ -689,14 +720,33 @@ func remailerFoo(subject, from string) (err error) {
 		return
 	}
 	sender := fromAddr.Address
+	if !validRecipient(sender) {
+		err = errors.New("ignoring remailer-* request from an address that can't be replied to safely")
+		return
+	}
 	// The From header can be forged, so reply at most once a day per address.
 	if !fooReplies.allowed(sender) {
 		err = fmt.Errorf("already replied to %s today, ignoring %s", sender, subject)
 		return
 	}
+	// Addresses on the destination block list get no replies either.  If
+	// the list can't be read, don't reply.
+	blockList, err := readDestBlock(cfg.Files.DestBlock)
+	if err != nil {
+		err = fmt.Errorf("unable to read destination block list, ignoring %s: %w", subject, err)
+		return
+	}
+	if destBlocked(blockList, sender) {
+		err = fmt.Errorf("%s is on the destination block list, ignoring %s", sender, subject)
+		return
+	}
 	m := quickmail.NewMessage()
 	m.Set("From", cfg.Remailer.Address)
 	m.Set("To", sender)
+	m.Set("Date", time.Now().Format(rfc5322date))
+	m.Set("Message-ID", messageID())
+	m.Set("MIME-Version", "1.0")
+	m.Set("Content-Type", "text/plain; charset=UTF-8")
 	if strings.HasPrefix(subject, "remailer-key") {
 		// remailer-key
 		log.Tracef("remailer-key request from %s", sender)
@@ -716,6 +766,11 @@ func remailerFoo(subject, from string) (err error) {
 			m.Text(fmt.Sprintf("Maximum message size: %d kB\n", cfg.Remailer.MaxSize))
 		} else {
 			m.Text("Maximum message size: unlimited\n")
+		}
+		if cfg.Mail.MaxRecipients > 0 {
+			m.Text(fmt.Sprintf("Maximum recipients: %d\n", cfg.Mail.MaxRecipients))
+		} else {
+			m.Text("Maximum recipients: unlimited\n")
 		}
 		m.Text("The following header lines will be filtered:\n")
 		m.Text(
