@@ -290,6 +290,27 @@ func TestSmtpSendTLS(t *testing.T) {
 	}
 }
 
+// TestSmtpSendRequireTLSWithoutUseTLS checks that require_tls uses STARTTLS
+// even with usetls off, instead of failing every delivery.
+func TestSmtpSendRequireTLSWithoutUseTLS(t *testing.T) {
+	setupTestConfig(t)
+	mxCert, _ := newTestCert(t, "mx.test")
+	trusted := x509.NewCertPool()
+	trusted.AddCert(mxCert.Leaf)
+	oldRoots := smtpRootCAs
+	smtpRootCAs = trusted
+	t.Cleanup(func() { smtpRootCAs = oldRoots })
+	cfg.Mail.UseTLS = false
+	cfg.Mail.RequireTLS = true
+	server := newFakeSMTP(t, &mxCert, false, "")
+	if err := smtpSend("mx.test", "25", true, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"}); err != nil {
+		t.Fatalf("smtpSend failed: %s", err)
+	}
+	if usedTLS, _, delivered := server.result(); !usedTLS || !delivered {
+		t.Errorf("used TLS = %v, delivered = %v, want both", usedTLS, delivered)
+	}
+}
+
 func TestIsLoopbackHost(t *testing.T) {
 	for host, want := range map[string]bool{
 		"localhost":        true,

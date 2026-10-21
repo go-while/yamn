@@ -728,9 +728,11 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		)
 		return
 	}
-	// Test if the remote MTA supports STARTTLS
+	// Test if the remote MTA supports STARTTLS.  require_tls implies
+	// usetls: without STARTTLS, every delivery would fail.
+	useTLS := cfg.Mail.UseTLS || cfg.Mail.RequireTLS
 	ok, _ := client.Extension("STARTTLS")
-	if ok && cfg.Mail.UseTLS {
+	if ok && useTLS {
 		if err = client.StartTLS(smtpTLSConfig(relay, directMX)); err != nil {
 			log.Warnf(
 				"Error performing STARTTLS: Server=%s, Error=%s",
@@ -743,7 +745,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		err = fmt.Errorf("%s: no TLS available and require_tls is set", serverAddr)
 		log.Warn(err)
 		return
-	} else if !ok && cfg.Mail.UseTLS && !directMX && !isLoopbackHost(relay) {
+	} else if !ok && useTLS && !directMX && !isLoopbackHost(relay) {
 		// The configured relay is expected to offer STARTTLS.  If it
 		// doesn't, it's misconfigured or STARTTLS was stripped in
 		// transit, so don't fall back to plaintext.

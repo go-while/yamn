@@ -104,7 +104,7 @@ mail:
     usetls: true
     # Require verified TLS for every delivery, including directly to a
     # recipient's MX (which otherwise uses opportunistic TLS). Mail that can't
-    # be delivered this way stays in the pool.
+    # be delivered this way stays in the pool. Implies usetls.
     require_tls: false
     # SMTP relay and port
     smtp_relay: fleegle.mixmin.net

@@ -67,7 +67,7 @@ type Config struct {
 		Pipe         string `yaml:"pipe"`
 		Outfile      bool   `yaml:"outfile"`
 		UseTLS       bool   `yaml:"usetls"`
-		RequireTLS   bool   `yaml:"require_tls"` // Refuse delivery without verified TLS
+		RequireTLS   bool   `yaml:"require_tls"` // Refuse delivery without verified TLS; implies UseTLS
 		SMTPRelay    string `yaml:"smtp_relay"`
 		SMTPPort     string `yaml:"smtp_port"`
 		MXRelay      bool   `yaml:"mx_relay"`
