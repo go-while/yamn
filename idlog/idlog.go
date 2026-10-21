@@ -55,6 +55,12 @@ func (i *IDLog) Unique(key []byte) (unique bool) {
 	return
 }
 
+// Forget deletes key, so a packet that couldn't be processed because of a
+// local error can be processed again.
+func (i *IDLog) Forget(key []byte) {
+	i.db.Delete(key, nil)
+}
+
 // put stores key with an expiry date one validity period from now.
 func (i *IDLog) put(key []byte) {
 	insertTimestamp, err := time.Now().Add(i.validity).GobEncode()

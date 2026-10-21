@@ -40,6 +40,15 @@ func TestUnique(t *testing.T) {
 	}
 }
 
+func TestForget(t *testing.T) {
+	i, _ := newTestIDLog(t)
+	i.Unique([]byte("packet-1"))
+	i.Forget([]byte("packet-1"))
+	if !i.Unique([]byte("packet-1")) {
+		t.Fatal("A forgotten key should be unique again")
+	}
+}
+
 // TestUniquePersists checks that replay protection survives a restart.
 func TestUniquePersists(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "idlog")
