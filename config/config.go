@@ -21,7 +21,14 @@ type Pinger struct {
 }
 
 type Config struct {
-	General struct {
+	// BaseDir is the directory relative paths of the files section are
+	// resolved against (see setBaseDir).  Empty means the current
+	// directory.
+	BaseDir string `yaml:"-"`
+	// cwdFallback is set when the files are read from the current
+	// directory instead of the config file's (see setBaseDir).
+	cwdFallback bool
+	General     struct {
 		Loglevel     string `yaml:"loglevel"`
 		LogToFile    bool   `yaml:"logtofile"`
 		LogToJournal bool   `yaml:"logtojournal"`
@@ -301,6 +308,102 @@ func IgnoredLocalConfig(used string) (string, bool) {
 	return local, true
 }
 
+// setBaseDir sets BaseDir, the directory relative paths of the files
+// section are read from:
+//   - --dir, if given;
+//   - else the directory of the config file, if it was given with --config
+//     or $YAMNCFG;
+//   - else the current directory (an empty BaseDir), as before.
+//
+// Setups that run yamn from its directory with a config file elsewhere
+// keep working: if the config file's directory has none of yamn's files
+// and the current directory has, the current directory is used, with a
+// warning (see PathWarnings).
+func (c *Config) setBaseDir(f *Flags, cfgFile string) {
+	if f.Dir != "" {
+		c.BaseDir = f.Dir
+		return
+	}
+	if cfgFile == "" || (cfgFile != f.Config && cfgFile != os.Getenv("YAMNCFG")) {
+		return
+	}
+	dir := filepath.Dir(cfgFile)
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	cwd, err := os.Getwd()
+	if err == nil && cwd != dir && !c.hasDataFiles(dir) && c.hasDataFiles(cwd) {
+		c.cwdFallback = true
+		return
+	}
+	c.BaseDir = dir
+}
+
+// hasDataFiles reports whether dir holds one of the files a yamn
+// directory has after its first run: the keyring, the secret keyring or
+// the pool.  Only relative paths are looked for.
+func (c *Config) hasDataFiles(dir string) bool {
+	for _, p := range []string{c.Files.Pubring, c.Files.Secring, c.Files.Pooldir} {
+		if p == "" || filepath.IsAbs(p) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// relativePaths returns the paths of the files section that are still
+// relative, i.e. relative to the current directory.
+func (c *Config) relativePaths() (rel []string) {
+	for _, p := range []string{
+		c.Files.Pubring, c.Files.Mlist2, c.Files.Pubkey, c.Files.Secring,
+		c.Files.Adminkey, c.Files.Help, c.Files.Pooldir, c.Files.Maildir,
+		c.Files.IDlog, c.Files.ChunkDB, c.Files.Logfile, c.Files.DestBlock,
+	} {
+		if p != "" && !filepath.IsAbs(p) {
+			rel = append(rel, p)
+		}
+	}
+	return
+}
+
+// PathWarnings returns warnings about files read from the current
+// directory, where someone else could have put a pubring.mix or similar.
+func (c *Config) PathWarnings() (warnings []string) {
+	if c.BaseDir != "" {
+		return
+	}
+	rel := c.relativePaths()
+	if len(rel) == 0 {
+		return
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+	if c.cwdFallback {
+		warnings = append(warnings, fmt.Sprintf(
+			"Reading yamn's files from the current directory %s, not from the "+
+				"config file's directory %s, which has none of them. Pass "+
+				"--dir to say where they are.",
+			cwd, filepath.Dir(c.Files.Config),
+		))
+		return
+	}
+	if len(rel) > 3 {
+		rel = append(rel[:3], "...")
+	}
+	warnings = append(warnings, fmt.Sprintf(
+		"No --dir given: relative paths (%s) are read from the current "+
+			"directory %s. Pass --dir, or set absolute paths in the files "+
+			"section.",
+		strings.Join(rel, ", "), cwd,
+	))
+	return
+}
+
 // newConfig returns a new instance of Config with some predefined defaults
 func (f *Flags) newConfig() *Config {
 	c := new(Config)
@@ -308,8 +411,8 @@ func (f *Flags) newConfig() *Config {
 	c.General.Loglevel = "warn"
 	c.General.LogToFile = false    // By default, log to stdout/stderr
 	c.General.LogToJournal = false // Don't log to journal by default
-	// Files are named relative to the --dir directory; ParseConfig adds it
-	// (see resolvePaths).
+	// Files are named relative to BaseDir; ParseConfig adds it (see
+	// setBaseDir and resolvePaths).
 	c.Files.Pubkey = "key.txt"
 	c.Files.Pubring = "pubring.mix"
 	c.Files.Secring = "secring.mix"
@@ -398,13 +501,14 @@ func (f *Flags) ParseConfig() (*Config, error) {
 			return nil, err
 		}
 	}
-	c.resolvePaths(f.Dir)
+	c.setBaseDir(f, cfgFile)
+	c.resolvePaths(c.BaseDir)
 	return c, nil
 }
 
 // resolvePaths makes the relative paths of the files section, from the
-// defaults or from the config file, relative to dir (--dir).  Absolute
-// paths are kept.  Without --dir, relative paths stay relative to the
+// defaults or from the config file, relative to dir (BaseDir).  Absolute
+// paths are kept.  With an empty dir, relative paths stay relative to the
 // current directory.
 func (c *Config) resolvePaths(dir string) {
 	for _, p := range []*string{

@@ -252,12 +252,13 @@ func TestDirRelativePaths(t *testing.T) {
 		}
 	}
 
-	// Without --dir, paths stay relative to the current directory.
+	// Without --dir, paths are relative to the directory of the --config
+	// file (see basedir_test.go).
 	c, err = (&Flags{Config: cfgFile}).ParseConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Files.Pubring != "my.mix" || c.Files.Secring != "secring.mix" {
+	if c.Files.Pubring != filepath.Join(dir, "my.mix") || c.Files.Secring != filepath.Join(dir, "secring.mix") {
 		t.Errorf("without --dir: pubring %q, secring %q", c.Files.Pubring, c.Files.Secring)
 	}
 }

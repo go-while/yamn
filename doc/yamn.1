@@ -45,11 +45,13 @@ Print the configuration in use, with all defaults filled in, and exit.
 The SMTP password is shown as (hidden).
 .TP
 .B "--dir=\fIdirectory"
-Base directory for yamn's files: the default paths of the
+Base directory for yamn's files: the relative paths of the
 .B files
-config options are relative to it, and
+config options, the defaults included, are relative to it, and
 .I directory/yamn.yml
-is one of the places the configuration is looked for.
+is one of the places the configuration is looked for.  See
+.B "Where the files are"
+below for the paths without this option.
 .TP
 .B "-D, --daemon"
 Start a remailer in an endless loop of reading, processing and sending
@@ -285,6 +287,31 @@ Disagreements between pingers are logged (loglevel info), problems with a
 pinger as warnings.  A pinger that can't be reached keeps its last downloaded
 files.  Plain http URLs are warned about: anyone on the network path can
 change what is downloaded from them.
+.SS Where the files are
+The relative paths of the
+.B files
+section (the default file names included) are relative to:
+.IP 1. 4
+the
+.B --dir
+directory, if given;
+.IP 2. 4
+else the directory of the config file, if it was given with
+.B --config
+or
+.BR YAMNCFG .
+If that directory has none of yamn's files (pubring.mix, secring.mix, the
+pool) but the current directory has, the current directory is used, as in
+earlier versions, with a warning;
+.IP 3. 4
+else the current directory, with a warning: a pubring.mix put there by
+someone else would be used.
+.PP
+Earlier versions always used the current directory without
+.BR --dir .
+Setups that run yamn from its directory with
+.B --dir
+or with the config file in that directory are not affected.
 .SH SEE ALSO
 .I ISSUES.md
 in the source tree for known issues and their status.
