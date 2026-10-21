@@ -50,8 +50,9 @@ files:
     # Log file, used with general.logtofile
     logfile: yamn.log
     # Destination block list: addresses that must not receive mail from this
-    # exit. One address or "@domain" per line, "#" starts a comment. Read for
-    # every message, so edits apply immediately. A missing file blocks nobody.
+    # exit, nor replies to remailer-* requests. One address or "@domain" per
+    # line, "#" starts a comment. Read for every message, so edits apply
+    # immediately. A missing file blocks nobody.
     dest_block: dest.blk
 
 # Where yamn downloads the public keyring and stats from. A download only
@@ -67,10 +68,12 @@ urls:
     # mlist2.txt.<name>. A key is only used if key_quorum pingers publish it,
     # so one wrong or compromised pinger can't add or replace a key. Stats
     # are the median of the pingers' whose stats are at most
-    # stats.stale_hours old. See yamn.yml.client for an example.
+    # stats.stale_hours old, older ones filling in up to key_quorum. See
+    # yamn.yml.client for an example.
     pingers: []
-    # How many pingers must publish a key before it's used. With fewer
-    # working pingers, all of them must agree.
+    # How many pingers must publish a key, or stats for a remailer, before
+    # they're used. With fewer usable keyrings, the current keyring is kept;
+    # 1 trusts any one pinger.
     key_quorum: 2
 
 # How mail is sent. Clients and remailers both need this to work.
@@ -78,8 +81,11 @@ mail:
     # Send through the configured relay using Go's SMTP client (smtp_relay,
     # smtp_port, username, password), never directly to recipients' MX.
     sendmail: false
-    # Pipe mail to this command instead, e.g. "/usr/sbin/sendmail -t".
-    # Overrides sendmail and the built-in SMTP client.
+    # Pipe mail to this command instead, e.g. "/usr/sbin/sendmail -i".
+    # Overrides sendmail and the built-in SMTP client. The recipients are
+    # added as arguments after "--". With -t (which upstream yamn needs),
+    # no recipients are passed and the command takes them from the headers;
+    # the block list and Bcc then don't work.
     pipe: ""
     # Write outbound mail to files in the pool instead of sending it (testing).
     # Overrides all other delivery options.
@@ -94,7 +100,10 @@ mail:
     # SMTP relay and port
     smtp_relay: fleegle.mixmin.net
     smtp_port: "587"
-    # Deliver a message with a single recipient directly to that recipient's MX
+    # Deliver a message with a single recipient directly to that recipient's
+    # MX. A domain without MX records gets the mail at its own address; one
+    # with a null MX, or that doesn't exist, can't receive mail. If DNS fails,
+    # the message stays in the pool.
     mx_relay: true
     # Allow .onion hosts as MX
     onion_relay: false
@@ -116,6 +125,9 @@ mail:
     # MIME-Version, X-No-Archive, Content-*). The client applies the same list
     # to the messages it sends, unless --keep-headers is given.
     allow_headers: []
+    # Most recipients (To, Cc and Bcc, after the block list) an exit mails a
+    # message to. A message with more is not delivered. 0 means no limit.
+    max_recipients: 10
 
 # How a client (or a remailer sending dummies) picks random remailers.
 stats:
@@ -146,14 +158,22 @@ pool:
     rate: 65
     # Minimum number of messages to consider sending
     min_send: 5
-    # Seconds between pool runs in daemon mode (at least 120)
+    # Seconds between pool runs in daemon mode (at least 120). Each run also
+    # sends the waiting remailer-* replies (one attempt each, not mixed). Up
+    # to 4 files are sent at the same time, so a slow mail server doesn't
+    # hold up the others.
     loop: 300
     # Delete outbound messages older than this many days; also how long
-    # rejected incoming mail is kept
+    # rejected incoming mail is kept. Messages are retried until then after
+    # a temporary failure (4xx reply, network or DNS error). A permanent
+    # (5xx) rejection by the recipient's own mail server deletes the message
+    # at once; recipients rejected with 5xx are skipped and the others still
+    # get it. Through smtp_relay, only an address error (5.1.x) counts as
+    # permanent; other 5xx replies there (e.g. relaying denied) are retried.
     max_age: 28
 
 remailer:
-    # Short name in keyrings and stats, 2 to 12 characters
+    # Short name in keyrings and stats, 2 to 12 letters and digits
     name: anon
     # The remailer's email address; has to be a real address
     address: mix@nowhere.invalid
@@ -166,7 +186,11 @@ remailer:
     # max_age + 1; shorter values are raised to max_age + 2.
     id_expire: 16
     # Days a partly received multi-chunk message is kept
-    chunk_expire: 60
+    chunk_expire: 7
+    # Most chunks (up to 18 kB each) kept from partly received messages.
+    # While it's reached, only chunks that complete a message are kept; 0
+    # means no limit
+    chunk_limit: 1000
     # Reject packets older than this many days
     max_age: 14
     # Days a remailer key is valid, and how long it's kept after expiring

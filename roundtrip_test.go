@@ -119,7 +119,11 @@ func encodeTestMsg(plain []byte, chain ...*testRemailer) []byte {
 	}
 	final := newSlotFinal()
 	final.setNumChunks(1)
-	return encodeMsg(plain, addresses, *final)
+	packet, err := encodeMsg(plain, addresses, *final)
+	if err != nil {
+		panic(err)
+	}
+	return packet
 }
 
 // TestRoundTrip sends a message through middle -> exit using the real

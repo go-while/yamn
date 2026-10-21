@@ -36,15 +36,10 @@ func (i *IDLog) Unique(key []byte) (unique bool) {
 	var err error
 	_, err = i.db.Get(key, nil)
 	if err != nil {
-		if err.Error() == "leveldb: not found" {
+		if errors.Is(err, leveldb.ErrNotFound) {
 			// This condition indicates we don't know this key
 			unique = true
-			expireDate := time.Now().Add(i.validity)
-			insertTimestamp, err := expireDate.GobEncode()
-			err = i.db.Put(key, insertTimestamp, nil)
-			if err != nil {
-				panic(err)
-			}
+			i.put(key)
 		} else {
 			// It's not an error we anticipated
 			panic(err)
@@ -60,7 +55,28 @@ func (i *IDLog) Unique(key []byte) (unique bool) {
 	return
 }
 
-func (i *IDLog) Expire() (count, deleted int) {
+// Forget deletes key, so a packet that couldn't be processed because of a
+// local error can be processed again.
+func (i *IDLog) Forget(key []byte) {
+	i.db.Delete(key, nil)
+}
+
+// put stores key with an expiry date one validity period from now.
+func (i *IDLog) put(key []byte) {
+	insertTimestamp, err := time.Now().Add(i.validity).GobEncode()
+	if err != nil {
+		panic(err)
+	}
+	err = i.db.Put(key, insertTimestamp, nil)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// Expire deletes expired entries.  An entry whose expiry date can't be
+// read gets a new one, a full validity period from now, so its packet ID
+// stays known; bad counts them.
+func (i *IDLog) Expire() (count, deleted, bad int) {
 	var err error
 	now := time.Now()
 	iter := i.db.NewIterator(nil, nil)
@@ -69,7 +85,10 @@ func (i *IDLog) Expire() (count, deleted int) {
 		key := iter.Key()
 		err = timestamp.GobDecode(iter.Value())
 		if err != nil {
-			panic(err)
+			i.put(key)
+			bad++
+			count++
+			continue
 		}
 		if now.After(timestamp) {
 			i.db.Delete(key, nil)

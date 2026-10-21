@@ -140,7 +140,7 @@ const (
 // written to a temporary file next to filename and renamed over it, so a
 // failed download or write never replaces a working file.
 func httpGet(url, filename string, validate func([]byte) error) (err error) {
-	client := &http.Client{Timeout: httpTimeout}
+	client := &http.Client{Timeout: httpTimeout, CheckRedirect: noDowngrade}
 	res, err := client.Get(url)
 	if err != nil {
 		return
@@ -164,6 +164,20 @@ func httpGet(url, filename string, validate func([]byte) error) (err error) {
 		}
 	}
 	return writeFileAtomic(filename, content, 0644)
+}
+
+// noDowngrade is an http.Client CheckRedirect that refuses redirects from
+// https to plain http.  Like the default, it stops after 10 redirects.
+func noDowngrade(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	for _, v := range via {
+		if v.URL.Scheme == "https" && req.URL.Scheme != "https" {
+			return fmt.Errorf("refusing redirect from https to %s", req.URL.Redacted())
+		}
+	}
+	return nil
 }
 
 // writeFileAtomic writes content to a temporary file in filename's directory
