@@ -151,11 +151,10 @@ func makeChain(inChain []string) (outChain []string, err error) {
 				return
 			} else if len(candidates) == 1 {
 				hop = candidates[0]
-				log.Warnf(
-					"Only one remailer (%s) meets chain "+
-						"criteria",
-					hop,
-				)
+				// The hop itself only at debug level: logs shouldn't show
+				// chains.
+				log.Warn("Only one remailer meets the chain criteria")
+				log.Debugf("Only remailer meeting the chain criteria: %s", hop)
 			} else {
 				hop = candidates[crandom.RandomInt(len(candidates))]
 			}

@@ -920,7 +920,8 @@ not part of the repository yet and come with the fixes.
   - Create the log file 0600.
   - Mask the password in `--debug`.
 - **Found:** review 2, M-13 and K-18 (from reading the code).
-- **Status:** open.
+- **Status:** fixed in `36d0474` (branch `fix/48-client-logging`, #57). Tests:
+  `TestClientChainNotLogged`, `TestDebugHidesPassword`, `TestLogFileMode`.
 
 ### Y-49: The keyring is fetched at send time
 

@@ -165,8 +165,14 @@ func (c *Config) WriteConfig(filename string) error {
 	return nil
 }
 
+// Debug returns the config as YAML for --debug.  The SMTP password is
+// replaced by "(hidden)", so the output can be shared.
 func (c *Config) Debug() ([]byte, error) {
-	data, err := yaml.Marshal(c)
+	shown := *c
+	if shown.Mail.Password != "" {
+		shown.Mail.Password = "(hidden)"
+	}
+	data, err := yaml.Marshal(&shown)
 	if err != nil {
 		return nil, err
 	}
