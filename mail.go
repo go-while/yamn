@@ -227,12 +227,15 @@ func destBlocked(list map[string]bool, addy string) bool {
 	return false
 }
 
-// uniqueStrings returns s without duplicates, keeping the first occurrence.
-func uniqueStrings(s []string) (u []string) {
+// uniqueAddresses returns addresses without duplicates, keeping the first
+// spelling.  Case is ignored, as in the block list, so "Bob@Example.com"
+// and "bob@example.com" get one copy.
+func uniqueAddresses(addresses []string) (u []string) {
 	seen := make(map[string]bool)
-	for _, v := range s {
-		if !seen[v] {
-			seen[v] = true
+	for _, v := range addresses {
+		k := strings.ToLower(v)
+		if !seen[k] {
+			seen[k] = true
 			u = append(u, v)
 		}
 	}
@@ -483,7 +486,7 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 	sendTo = append(sendTo, headToAddy(msg.Header, "Cc")...)
 	// Bcc recipients get the message, but the Bcc header itself is removed
 	// by filterHeaders below so other recipients don't see them.
-	sendTo = uniqueStrings(append(sendTo, headToAddy(msg.Header, "Bcc")...))
+	sendTo = uniqueAddresses(append(sendTo, headToAddy(msg.Header, "Bcc")...))
 	filterHeaders(msg.Header)
 	if len(sendTo) == 0 {
 		err = fmt.Errorf("%s: No email recipients found", filename)

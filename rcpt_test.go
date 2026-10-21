@@ -106,3 +106,11 @@ func TestRemailerFooQuotedFrom(t *testing.T) {
 		t.Errorf("Reply sent to %q", rcpts)
 	}
 }
+
+func TestUniqueAddresses(t *testing.T) {
+	got := uniqueAddresses([]string{"Bob@Example.invalid", "carol@example.invalid", "bob@example.invalid", "BOB@EXAMPLE.INVALID"})
+	want := []string{"Bob@Example.invalid", "carol@example.invalid"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
