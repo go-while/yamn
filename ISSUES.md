@@ -791,7 +791,9 @@ not part of the repository yet and come with the fixes.
   - Treat Null MX as permanent and keep the file on temporary DNS errors.
 - **Found:** review 2, M-6 and M-8. Tests: `TestReviewPermanentFailureKept`,
   `TestReviewMXLookup`.
-- **Status:** open.
+- **Status:** fixed in `a32d44a`, `2381a01` (branch
+  `fix/41-delivery-failures`, #43). Tests: `TestDeliveryFailures`,
+  `TestDeliveryFailuresDirectMX`, `TestMXLookupFailures`.
 
 ### Y-42: `remailer-*` replies skip the block list and lack Date/Message-ID
 
