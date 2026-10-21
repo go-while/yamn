@@ -766,12 +766,13 @@ func remailerFoo(subject, from string) (err error) {
 		log.Infof("Unable to send %s", subject)
 		return
 	}
-	err = mailBytes(msg, []string{sender})
-	if err != nil {
-		log.Warnf("Failed to send %s to %s", subject, sender)
-		return
-	}
-	// Only count replies that were sent, so a failed send can be retried.
+	// Count the reply before it's sent.  Its address may belong to a mail
+	// server that never answers, and each request would cost a send.
 	fooReplies.record(sender)
+	// The reply is sent from the pool, so a slow mail server can't hold up
+	// the processing of incoming mail.
+	if err = writeReplyToPool(msg); err != nil {
+		err = fmt.Errorf("unable to pool the %s reply: %w", subject, err)
+	}
 	return
 }
