@@ -75,8 +75,13 @@ func readMessage(r io.Reader, name string) []byte {
 // exit passes on (see headerAllowed) plus Bcc, which the exit needs to find
 // the hidden recipients.  Date and Message-Id are removed: the exit sets its
 // own, and they can show the sender's time zone and host name.  From is kept
-// as a bare address, without the display name.
+// as a bare address, without the display name.  Headers with a CR or NUL in
+// them are removed too, as an exit refuses the message.
 func stripClientHeaders(h mail.Header) (removed []string) {
+	for k := badHeader(h); k != ""; k = badHeader(h) {
+		delete(h, k)
+		removed = append(removed, k+" (CR or NUL)")
+	}
 	extra := extraAllowedHeaders()
 	for k := range h {
 		keep := k == "Bcc" || (headerAllowed(k, extra) && k != "Date" && k != "Message-Id")
