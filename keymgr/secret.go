@@ -2,6 +2,8 @@ package keymgr
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/ecdh"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -244,6 +246,11 @@ func (s *Secring) WriteSecret(keyidstr string) {
 	if err != nil {
 		panic(err)
 	}
+	// The key must be on disk before it's advertised.
+	err = f.Sync()
+	if err != nil {
+		panic(err)
+	}
 }
 
 // WriteMyKey writes the local public key to filename with current
@@ -298,6 +305,65 @@ func (s *Secring) WriteMyKey(filename string) (keyidstr string) {
 	err = out.Flush()
 	if err != nil {
 		panic(err)
+	}
+	return
+}
+
+// CheckAdvertised returns an error unless the public key file advertises a
+// key whose secret is in the keyring and not expired.  It returns the
+// advertised keyid.
+func (s *Secring) CheckAdvertised() (keyidstr string, err error) {
+	f, err := os.Open(s.pubkeyFile)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	var pub []byte
+	phase := 0 // 0 header, 1 Begin cutmark, 2 keyid, 3 public key
+	scanner := bufio.NewScanner(f)
+	for phase < 4 && scanner.Scan() {
+		line := scanner.Text()
+		switch phase {
+		case 0:
+			if elements := strings.Fields(line); len(elements) == 7 {
+				keyidstr = elements[2]
+				phase++
+			}
+		case 1:
+			if line == "-----Begin Mix Key-----" {
+				phase++
+			}
+		case 2:
+			phase++
+		case 3:
+			pub, _ = hex.DecodeString(line)
+			phase++
+		}
+	}
+	if err = scanner.Err(); err != nil {
+		return
+	}
+	if phase < 4 {
+		err = fmt.Errorf("%s: no public key found", s.pubkeyFile)
+		return
+	}
+	key, exists := s.sec[keyidstr]
+	if !exists {
+		err = fmt.Errorf("%s advertises keyid %s, which is not in the secret keyring", s.pubkeyFile, keyidstr)
+		return
+	}
+	if _, untilNextMidnight := midnights(key.until); time.Now().After(untilNextMidnight) {
+		err = fmt.Errorf("%s advertises keyid %s, which expired on %s",
+			s.pubkeyFile, keyidstr, key.until.UTC().Format(date_format))
+		return
+	}
+	// The advertised public key must belong to the secret key.
+	priv, err := ecdh.X25519().NewPrivateKey(key.sk)
+	if err != nil {
+		return
+	}
+	if !bytes.Equal(priv.PublicKey().Bytes(), pub) {
+		err = fmt.Errorf("%s: the public key of keyid %s doesn't match its secret key", s.pubkeyFile, keyidstr)
 	}
 	return
 }
