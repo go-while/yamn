@@ -45,7 +45,7 @@ files:
     pooldir: pool
     # Maildir the remailer reads incoming mail from. Mail that isn't a yamn
     # message is moved to its .rejected subfolder and deleted there after
-    # pool.max_age days.
+    # pool.rejected_age days.
     maildir: Maildir
     # Database of seen packet IDs (replay protection)
     idlog: idlog
@@ -178,14 +178,18 @@ pool:
     # to 4 files are sent at the same time, so a slow mail server doesn't
     # hold up the others.
     loop: 300
-    # Delete outbound messages older than this many days; also how long
-    # rejected incoming mail is kept. Messages are retried until then after
-    # a temporary failure (4xx reply, network or DNS error). A permanent
-    # (5xx) rejection by the recipient's own mail server deletes the message
-    # at once; recipients rejected with 5xx are skipped and the others still
-    # get it. Through smtp_relay, only an address error (5.1.x) counts as
-    # permanent; other 5xx replies there (e.g. relaying denied) are retried.
+    # Delete outbound messages older than this many days. Messages are
+    # retried until then after a temporary failure (4xx reply, network or DNS
+    # error). A permanent (5xx) rejection by the recipient's own mail server
+    # deletes the message at once; recipients rejected with 5xx are skipped
+    # and the others still get it. Through smtp_relay, only an address error
+    # (5.1.x) counts as permanent; other 5xx replies there (e.g. relaying
+    # denied) are retried.
     max_age: 28
+    # Delete mail in Maildir/.rejected (incoming mail that isn't a yamn
+    # message) older than this many days. Bounces there can quote messages
+    # this exit delivered, so they aren't kept long.
+    rejected_age: 7
 
 remailer:
     # Short name in keyrings and stats, 2 to 12 letters and digits

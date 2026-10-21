@@ -83,6 +83,7 @@ func TestExpireRejected(t *testing.T) {
 	setupTestConfig(t)
 	cfg.Files.Maildir = filepath.Join(t.TempDir(), "Maildir")
 	cfg.Pool.MaxAge = 28
+	cfg.Pool.RejectedAge = 7
 	// No rejected folder yet: nothing to do, and no error.
 	expireRejected()
 
@@ -97,7 +98,7 @@ func TestExpireRejected(t *testing.T) {
 	}
 	cur := filepath.Join(string(rejected), "cur")
 	for name, age := range map[string]time.Duration{
-		"old:2,":    30 * 24 * time.Hour,
+		"old:2,":    8 * 24 * time.Hour, // past rejected_age, within max_age
 		"recent:2,": 2 * 24 * time.Hour,
 	} {
 		file := filepath.Join(cur, name)

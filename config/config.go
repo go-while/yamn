@@ -104,6 +104,8 @@ type Config struct {
 		Loop    int `yaml:"loop"`
 		// Delete excessively old messages from the outbound pool
 		MaxAge int `yaml:"max_age"`
+		// Delete rejected incoming mail after this many days
+		RejectedAge int `yaml:"rejected_age"`
 	} `yaml:"pool"`
 	Remailer struct {
 		Name        string `yaml:"name"`
@@ -477,6 +479,7 @@ func (f *Flags) newConfig() *Config {
 	c.Pool.MinSend = 5 // Only used in Binomial Mix Pools
 	c.Pool.Loop = 300
 	c.Pool.MaxAge = 28
+	c.Pool.RejectedAge = 7
 	c.Remailer.Name = "anon"
 	c.Remailer.Address = "mix@nowhere.invalid"
 	c.Remailer.Exit = false

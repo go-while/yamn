@@ -363,10 +363,10 @@ func rejectMail(dir maildir.Dir, key, reason string) {
 }
 
 // expireRejected deletes messages in the rejected Maildir folder that are
-// older than pool.max_age days.
+// older than pool.rejected_age days.
 func expireRejected() {
 	rejected := rejectedMaildir()
-	maxAge := time.Duration(cfg.Pool.MaxAge) * 24 * time.Hour
+	maxAge := time.Duration(cfg.Pool.RejectedAge) * 24 * time.Hour
 	deleted := 0
 	for _, sub := range []string{"cur", "new"} {
 		subdir := path.Join(string(rejected), sub)
@@ -388,7 +388,7 @@ func expireRejected() {
 		}
 	}
 	if deleted > 0 {
-		log.Infof("Deleted %d rejected mails older than %d days", deleted, cfg.Pool.MaxAge)
+		log.Infof("Deleted %d rejected mails older than %d days", deleted, cfg.Pool.RejectedAge)
 	}
 }
 
