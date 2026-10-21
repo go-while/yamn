@@ -104,6 +104,7 @@ func TestMXLookupFailures(t *testing.T) {
 	servFail := &net.DNSError{Err: "server misbehaving", IsTemporary: true}
 	tests := []struct {
 		name          string
+		to            string // default a@example.invalid
 		mx            []*net.MX
 		mxErr         error
 		hostErr       error
@@ -113,6 +114,9 @@ func TestMXLookupFailures(t *testing.T) {
 		{name: "MX", mx: []*net.MX{{Host: "mx.example.invalid.", Pref: 10}}, wantDelivered: true},
 		{name: "null MX", mx: []*net.MX{{Host: ".", Pref: 0}}},
 		{name: "only onion MX", mx: []*net.MX{{Host: "abc.onion.", Pref: 0}}},
+		{name: "only onion MX, upper case", mx: []*net.MX{{Host: "ABC.Onion.", Pref: 0}}},
+		{name: "onion MX first", mx: []*net.MX{{Host: "abc.onion.", Pref: 0}, {Host: "mx.example.invalid.", Pref: 10}}, wantDelivered: true},
+		{name: "onion recipient", to: "a@abc.ONION", mxErr: servFail},
 		{name: "temporary DNS failure", mxErr: servFail, wantKept: true},
 		{name: "no MX, address found", mxErr: notFound, wantDelivered: true},
 		{name: "no MX, no address (NXDOMAIN)", mxErr: notFound, hostErr: notFound},
@@ -131,7 +135,11 @@ func TestMXLookupFailures(t *testing.T) {
 				}
 				return []string{"192.0.2.1"}, nil
 			}
-			file := writePoolMessage(t, "To: a@example.invalid\n")
+			to := tt.to
+			if to == "" {
+				to = "a@example.invalid"
+			}
+			file := writePoolMessage(t, "To: "+to+"\n")
 			emailPoolFile(filepath.Base(file))
 			_, err := os.Stat(file)
 			if kept := err == nil; kept != tt.wantKept {

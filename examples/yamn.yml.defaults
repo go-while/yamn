@@ -113,7 +113,9 @@ mail:
     # with a null MX, or that doesn't exist, can't receive mail. If DNS fails,
     # the message stays in the pool.
     mx_relay: true
-    # Allow .onion hosts as MX
+    # Ignored, with a warning if set: yamn connects to an MX directly and
+    # can't reach .onion hosts, so it always skips them. Mail to a .onion
+    # domain can't be delivered by MX and is dropped.
     onion_relay: false
     # Envelope sender; empty means remailer.address
     sender: ""

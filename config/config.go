@@ -452,7 +452,7 @@ func (f *Flags) newConfig() *Config {
 	c.Mail.UseTLS = true
 	c.Mail.RequireTLS = false
 	c.Mail.MXRelay = true
-	c.Mail.OnionRelay = false // Allow .onion addresses as MX relays
+	c.Mail.OnionRelay = false // Ignored: .onion MX hosts can't be reached
 	c.Mail.Sender = ""
 	c.Mail.Username = ""
 	c.Mail.Password = ""

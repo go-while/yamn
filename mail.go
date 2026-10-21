@@ -286,6 +286,14 @@ func isNotFound(err error) bool {
 	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
 }
 
+// isOnion reports whether host is a Tor .onion name, in any case and with or
+// without the trailing dot.  Go's resolver doesn't look these up (RFC 7686)
+// and yamn connects directly, so it can't deliver to them.
+func isOnion(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	return host == "onion" || strings.HasSuffix(host, ".onion")
+}
+
 // DNS lookups for direct MX delivery.  Tests replace them.
 var (
 	lookupMX   = net.LookupMX
@@ -303,6 +311,12 @@ func mxLookup(email string) (relay string, err error) {
 		return
 	}
 	domain := emailParts.domain
+	if isOnion(domain) {
+		// The lookup would fail as if DNS were down, and the message
+		// would be retried until pool.max_age.
+		err = fmt.Errorf("%w: %s is a .onion domain, which can't be reached directly", errPermanent, domain)
+		return
+	}
 	mxRecords, err := lookupMX(domain)
 	if err != nil {
 		if !isNotFound(err) {
@@ -327,12 +341,9 @@ func mxLookup(email string) (relay string, err error) {
 			// A null MX (RFC 7505): the domain accepts no mail.
 			continue
 		}
-		if !cfg.Mail.OnionRelay {
-			// We don't want no onions!
-			if strings.HasSuffix(mx.Host, ".onion.") {
-				// Ignore the onion, find another.
-				continue
-			}
+		if isOnion(mx.Host) {
+			// Unreachable whatever onion_relay says; find another.
+			continue
 		}
 		relay = strings.TrimSuffix(mx.Host, ".")
 		break

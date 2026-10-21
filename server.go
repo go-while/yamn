@@ -269,6 +269,10 @@ func nagOperator() {
 			cfg.Mail.MessageDomain,
 		)
 	}
+	if cfg.Mail.OnionRelay {
+		log.Warn("mail.onion_relay is ignored: yamn connects to an MX " +
+			"directly and can't reach .onion hosts, so it always skips them.")
+	}
 	if pipeReadsHeaders(cfg.Mail.Pipe) {
 		log.Warnf(
 			"mail.pipe %q reads the recipients from the headers (-t), "+
