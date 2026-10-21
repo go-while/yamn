@@ -694,9 +694,24 @@ func remailerFoo(subject, from string) (err error) {
 		err = fmt.Errorf("already replied to %s today, ignoring %s", sender, subject)
 		return
 	}
+	// Addresses on the destination block list get no replies either.  If
+	// the list can't be read, don't reply.
+	blockList, err := readDestBlock(cfg.Files.DestBlock)
+	if err != nil {
+		err = fmt.Errorf("unable to read destination block list, ignoring %s: %w", subject, err)
+		return
+	}
+	if destBlocked(blockList, sender) {
+		err = fmt.Errorf("%s is on the destination block list, ignoring %s", sender, subject)
+		return
+	}
 	m := quickmail.NewMessage()
 	m.Set("From", cfg.Remailer.Address)
 	m.Set("To", sender)
+	m.Set("Date", time.Now().Format(rfc5322date))
+	m.Set("Message-ID", messageID())
+	m.Set("MIME-Version", "1.0")
+	m.Set("Content-Type", "text/plain; charset=UTF-8")
 	if strings.HasPrefix(subject, "remailer-key") {
 		// remailer-key
 		log.Tracef("remailer-key request from %s", sender)

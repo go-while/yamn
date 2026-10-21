@@ -50,8 +50,9 @@ files:
     # Log file, used with general.logtofile
     logfile: yamn.log
     # Destination block list: addresses that must not receive mail from this
-    # exit. One address or "@domain" per line, "#" starts a comment. Read for
-    # every message, so edits apply immediately. A missing file blocks nobody.
+    # exit, nor replies to remailer-* requests. One address or "@domain" per
+    # line, "#" starts a comment. Read for every message, so edits apply
+    # immediately. A missing file blocks nobody.
     dest_block: dest.blk
 
 # Where yamn downloads the public keyring and stats from. A download only
