@@ -68,13 +68,24 @@ func (p *Pubring) UseExpired() {
 	p.useExpired = true
 }
 
-// KeyRefresh returns True if the Pubring file has been modified
+// KeyRefresh returns True if the Pubring file has been modified.  Without
+// a file there's nothing to refresh.
 func (p *Pubring) KeyRefresh() bool {
 	stat, err := os.Stat(p.pubringFile)
 	if err != nil {
-		panic(err)
+		return false
 	}
 	return stat.ModTime().After(p.keysImported)
+}
+
+// expired reports whether r's key is past its valid-until day and must not
+// be used.
+func (p Pubring) expired(r Remailer) bool {
+	if p.useExpired {
+		return false
+	}
+	_, untilNextMidnight := midnights(r.until)
+	return time.Now().After(untilNextMidnight)
 }
 
 // StatRefresh returns True if the mlist2.txt file has been modified
@@ -92,6 +103,9 @@ func (p *Pubring) StatRefresh() (refresh bool) {
 func (p Pubring) Candidates(minlat, maxlat int, minrel float32, exit bool) (c []string) {
 	for addy := range p.pub {
 		stats := p.pub[addy]
+		if p.expired(stats) {
+			continue
+		}
 		if exit {
 			if strings.Contains(stats.caps, "M") {
 				// Exits are required and this is a Middle
@@ -161,6 +175,14 @@ func (p Pubring) Get(ref string) (r Remailer, err error) {
 			return
 		}
 		r = p.pub[addy]
+	}
+	// A key can expire while a long-running remailer has it in memory.
+	if p.expired(r) {
+		err = fmt.Errorf(
+			"%s: Remailer key expired on %s",
+			ref,
+			r.until.UTC().Format(date_format),
+		)
 	}
 	return
 }
@@ -354,6 +376,10 @@ func (p *Pubring) ImportPubring() (err error) {
 		return
 	}
 	defer f.Close()
+	stat, err := f.Stat()
+	if err != nil {
+		return
+	}
 	rems, err := readPubring(f, time.Now(), p.useExpired, stderrWarn)
 	if err != nil {
 		return
@@ -361,14 +387,15 @@ func (p *Pubring) ImportPubring() (err error) {
 	// MergePingers decides ambiguous names and addresses by the pingers'
 	// votes; within one keyring there's nothing to decide by.
 	rems = dropAmbiguous(rems, stderrWarn)
+	// Replace the keys, so keys that left the file are dropped.
+	p.pub = make(map[string]Remailer)
+	p.xref = make(map[string]string)
 	for _, rem := range rems {
 		p.Put(rem)
 	}
+	// The stats are kept in the keys: read them again on next use.
+	p.statsImported = time.Time{}
 	// Set key imported timestamp
-	stat, err := os.Stat(p.pubringFile)
-	if err != nil {
-		panic(err)
-	}
 	p.keysImported = stat.ModTime()
 	return
 }

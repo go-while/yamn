@@ -42,12 +42,13 @@ func TestReplyLimiterKeyed(t *testing.T) {
 	}
 }
 
-// TestRemailerFooReply sends remailer-help requests through remailerFoo to a
-// fake SMTP server.
+// TestRemailerFooReply sends remailer-help requests through remailerFoo and
+// the pool to a fake SMTP server.
 func TestRemailerFooReply(t *testing.T) {
 	setupTestConfig(t)
 	cfg.Mail.MXRelay = false
 	cfg.Mail.SMTPRelay = "localhost"
+	cfg.Files.Pooldir = t.TempDir()
 	cfg.Files.Help = filepath.Join(t.TempDir(), "help.txt")
 	if err := os.WriteFile(cfg.Files.Help, []byte("How to use this remailer.\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -66,6 +67,7 @@ func TestRemailerFooReply(t *testing.T) {
 	if err := remailerFoo("remailer-help", "Alice <alice@example.invalid>"); err != nil {
 		t.Fatalf("remailer-help failed: %s", err)
 	}
+	poolOutboundSend()
 	if got := rcpts(); !slices.Equal(got, []string{"alice@example.invalid"}) {
 		t.Fatalf("Recipients: got %q, want alice's bare address", got)
 	}
@@ -73,6 +75,7 @@ func TestRemailerFooReply(t *testing.T) {
 	if err := remailerFoo("remailer-help", "alice@example.invalid"); err == nil {
 		t.Error("Second request the same day should be refused")
 	}
+	poolOutboundSend()
 	if n := len(rcpts()); n != 1 {
 		t.Errorf("Expected 1 reply in total, got %d", n)
 	}
@@ -82,12 +85,15 @@ func TestRemailerFooReply(t *testing.T) {
 	}
 }
 
-// TestRemailerFooFailedSendNotCounted checks that a reply that couldn't be
-// sent doesn't use up the address's reply for the day.
-func TestRemailerFooFailedSendNotCounted(t *testing.T) {
+// TestRemailerFooFailedSendCounted checks that a reply counts as the
+// address's reply for the day even if it can't be sent, so a request for an
+// address whose mail server never answers can't be repeated, and that a
+// failed reply gets one attempt only.
+func TestRemailerFooFailedSendCounted(t *testing.T) {
 	setupTestConfig(t)
 	cfg.Mail.MXRelay = false
 	cfg.Mail.SMTPRelay = "localhost"
+	cfg.Files.Pooldir = t.TempDir()
 	cfg.Files.Help = filepath.Join(t.TempDir(), "help.txt")
 	if err := os.WriteFile(cfg.Files.Help, []byte("Help\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -102,10 +108,14 @@ func TestRemailerFooFailedSendNotCounted(t *testing.T) {
 		return net.Dial(network, "127.0.0.1:1")
 	}
 	t.Cleanup(func() { smtpDial = oldDial })
-	if err := remailerFoo("remailer-help", "alice@example.invalid"); err == nil {
-		t.Fatal("Sending should fail without an SMTP server")
+	if err := remailerFoo("remailer-help", "alice@example.invalid"); err != nil {
+		t.Fatalf("The reply should be pooled: %s", err)
 	}
-	if !fooReplies.allowed("alice@example.invalid") {
-		t.Error("A failed send should not count as today's reply")
+	if fooReplies.allowed("alice@example.invalid") {
+		t.Error("A pooled reply should count as today's reply")
+	}
+	poolOutboundSend()
+	if names, _ := readDir(cfg.Files.Pooldir, "r"); len(names) != 0 {
+		t.Errorf("A reply should be deleted after one failed attempt, %d left", len(names))
 	}
 }

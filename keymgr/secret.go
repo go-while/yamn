@@ -2,10 +2,13 @@ package keymgr
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/ecdh"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -164,9 +167,9 @@ func (s *Secring) Insert(pub, sec []byte) (keyidstr string) {
 	*/
 	key.keyid = makeKeyID(pub)
 	keyidstr = hex.EncodeToString(key.keyid)
-	// Validity dates
-	key.from = time.Now()
-	key.until = time.Now().Add(s.validity)
+	// Validity dates.  Keyrings use UTC dates.
+	key.from = time.Now().UTC()
+	key.until = key.from.Add(s.validity)
 	// The secret key itself
 	key.sk = sec
 	s.sec[keyidstr] = *key
@@ -254,6 +257,11 @@ func (s *Secring) WriteSecret(keyidstr string) {
 	if err != nil {
 		panic(err)
 	}
+	// The key must be on disk before it's advertised.
+	err = f.Sync()
+	if err != nil {
+		panic(err)
+	}
 }
 
 // WriteMyKey writes the local public key to filename with current
@@ -312,6 +320,65 @@ func (s *Secring) WriteMyKey(filename string) (keyidstr string) {
 	return
 }
 
+// CheckAdvertised returns an error unless the public key file advertises a
+// key whose secret is in the keyring and not expired.  It returns the
+// advertised keyid.
+func (s *Secring) CheckAdvertised() (keyidstr string, err error) {
+	f, err := os.Open(s.pubkeyFile)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	var pub []byte
+	phase := 0 // 0 header, 1 Begin cutmark, 2 keyid, 3 public key
+	scanner := bufio.NewScanner(f)
+	for phase < 4 && scanner.Scan() {
+		line := scanner.Text()
+		switch phase {
+		case 0:
+			if elements := strings.Fields(line); len(elements) == 7 {
+				keyidstr = elements[2]
+				phase++
+			}
+		case 1:
+			if line == "-----Begin Mix Key-----" {
+				phase++
+			}
+		case 2:
+			phase++
+		case 3:
+			pub, _ = hex.DecodeString(line)
+			phase++
+		}
+	}
+	if err = scanner.Err(); err != nil {
+		return
+	}
+	if phase < 4 {
+		err = fmt.Errorf("%s: no public key found", s.pubkeyFile)
+		return
+	}
+	key, exists := s.sec[keyidstr]
+	if !exists {
+		err = fmt.Errorf("%s advertises keyid %s, which is not in the secret keyring", s.pubkeyFile, keyidstr)
+		return
+	}
+	if _, untilNextMidnight := midnights(key.until); time.Now().After(untilNextMidnight) {
+		err = fmt.Errorf("%s advertises keyid %s, which expired on %s",
+			s.pubkeyFile, keyidstr, key.until.UTC().Format(date_format))
+		return
+	}
+	// The advertised public key must belong to the secret key.
+	priv, err := ecdh.X25519().NewPrivateKey(key.sk)
+	if err != nil {
+		return
+	}
+	if !bytes.Equal(priv.PublicKey().Bytes(), pub) {
+		err = fmt.Errorf("%s: the public key of keyid %s doesn't match its secret key", s.pubkeyFile, keyidstr)
+	}
+	return
+}
+
 // Return the Secret struct that corresponds to the requested Keyid
 func (s *Secring) Get(keyid string) (sec secret, err error) {
 	var exists bool
@@ -359,52 +426,34 @@ func (s *Secring) Purge() (active, expiring, expired, purged int) {
 		panic(err)
 	}
 
-	// Rename the secring file to a tmp name, just in case this screws up.
-	err := os.Rename(s.secringFile, s.secringFile+".tmp")
-	if err != nil {
+	if _, err := os.Stat(s.secringFile); err != nil {
 		// The implication is that no secring file exists yet
 		return
 	}
-
-	// Create a new secring file. At this point, secringFile must not
-	// exist.
-	f, err := OpenCreate(s.secringFile)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
 
 	// Set the duration prior to expired that we consider "expiring".
 	now := time.Now()
 	expirePeriod := time.Duration(-expiringDays) * time.Hour
 
-	// Iterate key and value of Secring in memory
-	for k, m := range s.sec {
+	var keydata strings.Builder
+	var drop []string
+	for _, k := range sortedKeys(s.sec) {
+		m := s.sec[k]
 		purgeDate := m.until.Add(s.grace)
 		_, purgeNextMidnight := midnights(purgeDate)
 		if now.After(purgeNextMidnight) {
 			// Key has expired. Purge from memory and don't write
 			// it back to disk.
-			delete(s.sec, k)
+			drop = append(drop, k)
 			purged++
 			continue
 		}
-		keydata := "-----Begin Mixmaster Secret Key-----\n"
-		keydata += fmt.Sprintf(
-			"Created: %s\n",
-			m.from.Format(date_format),
-		)
-		keydata += fmt.Sprintf(
-			"Expires: %s\n",
-			m.until.Format(date_format),
-		)
-		keydata += hex.EncodeToString(m.keyid) + "\n"
-		keydata += hex.EncodeToString(m.sk) + "\n"
-		keydata += "-----End Mixmaster Secret Key-----\n\n"
-		_, err = f.WriteString(keydata)
-		if err != nil {
-			panic(err)
-		}
+		keydata.WriteString("-----Begin Mixmaster Secret Key-----\n")
+		fmt.Fprintf(&keydata, "Created: %s\n", m.from.UTC().Format(date_format))
+		fmt.Fprintf(&keydata, "Expires: %s\n", m.until.UTC().Format(date_format))
+		keydata.WriteString(hex.EncodeToString(m.keyid) + "\n")
+		keydata.WriteString(hex.EncodeToString(m.sk) + "\n")
+		keydata.WriteString("-----End Mixmaster Secret Key-----\n\n")
 		// Key dates on keyrings are in days so a we use nextMidnight
 		// so that keys remain valid throughout their whole last day.
 		_, untilNextMidnight := midnights(m.until)
@@ -417,6 +466,57 @@ func (s *Secring) Purge() (active, expiring, expired, purged int) {
 		} else {
 			active++
 		}
+	}
+	// The old file stays in place until the new one is complete and on
+	// disk, so a crash or a full disk can't lose the keys.
+	if err := writeFileSync(s.secringFile, []byte(keydata.String())); err != nil {
+		panic(err)
+	}
+	for _, k := range drop {
+		delete(s.sec, k)
+	}
+	// Older versions left the previous secring here, purged keys
+	// included.
+	if err := os.Remove(s.secringFile + ".tmp"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		panic(err)
+	}
+	return
+}
+
+// writeFileSync replaces filename with data: it writes filename.new (mode
+// 0600), syncs it and renames it over filename.
+func writeFileSync(filename string, data []byte) (err error) {
+	tmp := filename + ".new"
+	// A leftover from a crash holds nothing the original doesn't.
+	if err = os.Remove(tmp); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	f, err := OpenCreate(tmp)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			f.Close()
+			os.Remove(tmp)
+		}
+	}()
+	if _, err = f.Write(data); err != nil {
+		return
+	}
+	if err = f.Sync(); err != nil {
+		return
+	}
+	if err = f.Close(); err != nil {
+		return
+	}
+	if err = os.Rename(tmp, filename); err != nil {
+		return
+	}
+	// Make the rename itself durable.
+	if d, derr := os.Open(filepath.Dir(filename)); derr == nil {
+		d.Sync()
+		d.Close()
 	}
 	return
 }
@@ -539,6 +639,7 @@ func (s *Secring) ImportSecring() (err error) {
 				// Non hex Private key
 				fmt.Fprintln(os.Stderr, err)
 				key_phase = 0
+				continue
 			}
 			if len(skdata) != 32 {
 				fmt.Fprintln(os.Stderr, "Incorrect key length")
