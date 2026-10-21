@@ -68,7 +68,9 @@ hops of it, including the named ones.
 If multiple copies are specified, all copies must share a common exit remailer.
 .TP
 .B "-m, --mail"
-Operate in client mode and inject a plain-text message into the Yamn pool
+Operate in client mode and inject a plain-text message into the Yamn pool.
+A message is sent in chunks of 17910 bytes, at most 255 of them (about
+4.5 MB with its headers); a larger message is refused.
 .TP
 .B "-M, --remailer"
 Operate in server mode.  Normally used in combination with 
