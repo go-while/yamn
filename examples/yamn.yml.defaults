@@ -156,7 +156,10 @@ pool:
     rate: 65
     # Minimum number of messages to consider sending
     min_send: 5
-    # Seconds between pool runs in daemon mode (at least 120)
+    # Seconds between pool runs in daemon mode (at least 120). Each run also
+    # sends the waiting remailer-* replies (one attempt each, not mixed). Up
+    # to 4 files are sent at the same time, so a slow mail server doesn't
+    # hold up the others.
     loop: 300
     # Delete outbound messages older than this many days; also how long
     # rejected incoming mail is kept. Messages are retried until then after

@@ -462,7 +462,9 @@ not part of the repository yet and come with the fixes.
   - Record the attempt before sending.
   - Give the outbound pool per-destination backoff or concurrent workers.
 - **Found:** review 2, M-5. Test: `TestReviewFooTarpitBlocksMainLoop`.
-- **Status:** open.
+- **Status:** fixed in `f52684e` (branch `fix/28-tarpit`, #45). Tests:
+  `TestPoolSendConcurrent`, `TestRemailerFooDoesNotBlock`,
+  `TestRemailerFooFailedSendCounted`.
 
 ### Y-29: Data files are read from the current directory without --dir
 

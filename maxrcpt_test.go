@@ -82,10 +82,13 @@ func TestRemailerConfMaxRecipients(t *testing.T) {
 	for limit, want := range map[int]string{10: "Maximum recipients: 10\n", 0: "Maximum recipients: unlimited\n"} {
 		cfg.Mail.MaxRecipients = limit
 		fooReplies = newReplyLimiter()
+		cfg.Files.Pooldir = t.TempDir()
 		server := newFakeSMTP(t, nil, false, "")
 		if err := remailerFoo("remailer-conf", "someone@example.invalid"); err != nil {
 			t.Fatalf("remailer-conf failed: %s", err)
 		}
+		// Replies are pooled and sent with the pool.
+		poolOutboundSend()
 		server.mu.Lock()
 		data := string(server.data)
 		server.mu.Unlock()

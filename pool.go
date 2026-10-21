@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	//"github.com/codahale/blake2"
@@ -55,8 +56,69 @@ func sendPoolBatch() {
 	// filenames = dynamicMix()
 	// Read binomialMix of outbound files from the Pool
 	filenames := binomialMix()
+	// remailer-* replies aren't anonymous, so they aren't mixed.
+	replies, _ := readDir(cfg.Files.Pooldir, "r")
+	sendPoolFiles(append(filenames, replies...))
+}
+
+// poolWorkers is how many pool files are sent at the same time.  A mail
+// server that is slow or never answers holds up one worker for up to
+// smtpTimeout, while the others carry on.
+const poolWorkers = 4
+
+// sendPoolFiles sends the given pool files, poolWorkers at a time, and
+// returns when all are done.  Names starting with "r" are remailer-*
+// replies, the others outbound messages.
+func sendPoolFiles(filenames []string) {
+	sem := make(chan struct{}, poolWorkers)
+	var wg sync.WaitGroup
 	for _, filename := range filenames {
-		emailPoolFile(filename)
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+			if strings.HasPrefix(filename, "r") {
+				sendReplyFile(filename)
+			} else {
+				emailPoolFile(filename)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// writeReplyToPool stores a remailer-* reply in the pool, to be sent by
+// sendReplyFile.
+func writeReplyToPool(msg []byte) error {
+	_, err := writePoolFile("r", msg)
+	return err
+}
+
+// sendReplyFile sends a pooled remailer-* reply to its To address and
+// deletes it.  A reply gets one attempt: the request's From can be forged,
+// so it isn't worth retrying.
+func sendReplyFile(filename string) {
+	defer poolDelete(filename)
+	content, err := os.ReadFile(path.Join(cfg.Files.Pooldir, filename))
+	if err != nil {
+		log.Warnf("Failed to read reply %s: %s", filename, err)
+		return
+	}
+	msg, err := mail.ReadMessage(bytes.NewReader(content))
+	if err != nil {
+		log.Warnf("Reply %s is not a mail: %s", filename, err)
+		return
+	}
+	to, err := mail.ParseAddress(msg.Header.Get("To"))
+	if err != nil {
+		log.Warnf("Reply %s has no valid To: %s", filename, err)
+		return
+	}
+	if err = mailBytes(content, []string{to.Address}); err != nil {
+		log.Infof("Failed to send remailer-* reply %s: %s", filename, err)
 	}
 }
 
@@ -89,9 +151,8 @@ func poolOutboundSend() {
 		// During normal operation, the pool shouldn't be flushed.
 		log.Warn("Flushing outbound remailer pool")
 	}
-	for _, filename := range filenames {
-		emailPoolFile(filename)
-	}
+	replies, _ := readDir(cfg.Files.Pooldir, "r")
+	sendPoolFiles(append(filenames, replies...))
 }
 
 // emailPoolFile tries to email a given file from the Pool.  If conditions are
