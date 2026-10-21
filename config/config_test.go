@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -223,6 +224,59 @@ func TestFlagsArgs(t *testing.T) {
 			if f.Args[i] != tt.want[i] {
 				t.Errorf("%q: Args = %q, want %q", tt.cmdline, f.Args, tt.want)
 			}
+		}
+	}
+}
+
+// TestDirRelativePaths checks that relative paths in the config file are
+// relative to --dir, like the defaults, and that absolute paths are kept.
+func TestDirRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "yamn.yml")
+	cfgYAML := "files:\n    pubring: my.mix\n    maildir: sub/Maildir\n    pooldir: /abs/pool\n"
+	if err := os.WriteFile(cfgFile, []byte(cfgYAML), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := (&Flags{Dir: dir, Config: cfgFile}).ParseConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range []struct{ name, got, want string }{
+		{"pubring (from the file)", c.Files.Pubring, filepath.Join(dir, "my.mix")},
+		{"maildir (from the file)", c.Files.Maildir, filepath.Join(dir, "sub/Maildir")},
+		{"pooldir (absolute)", c.Files.Pooldir, "/abs/pool"},
+		{"secring (default)", c.Files.Secring, filepath.Join(dir, "secring.mix")},
+	} {
+		if x.got != x.want {
+			t.Errorf("%s: %q, want %q", x.name, x.got, x.want)
+		}
+	}
+
+	// Without --dir, paths stay relative to the current directory.
+	c, err = (&Flags{Config: cfgFile}).ParseConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Files.Pubring != "my.mix" || c.Files.Secring != "secring.mix" {
+		t.Errorf("without --dir: pubring %q, secring %q", c.Files.Pubring, c.Files.Secring)
+	}
+}
+
+// TestResolvePathsCoversFiles checks that resolvePaths handles every path
+// of the files section, so a new one can't be forgotten.
+func TestResolvePathsCoversFiles(t *testing.T) {
+	c := new(Config)
+	v := reflect.ValueOf(&c.Files).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		if v.Type().Field(i).Tag.Get("yaml") != "" {
+			v.Field(i).SetString("rel")
+		}
+	}
+	c.resolvePaths("/d")
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Type().Field(i)
+		if f.Tag.Get("yaml") != "" && v.Field(i).String() != "/d/rel" {
+			t.Errorf("files.%s is not resolved against --dir", f.Tag.Get("yaml"))
 		}
 	}
 }

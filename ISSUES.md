@@ -28,6 +28,7 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 | [Y-19](#y-19-remailer--replies-go-to-a-forgeable-address) | Low | `remailer-*` replies go to a forgeable address | fixed (5e5e2d1) |
 | [Y-20](#y-20-client-does-not-strip-identifying-headers) | Low | Client does not strip identifying headers | fixed (0d01f6a) |
 | [Y-21](#y-21-client-ignores-the-message-file-argument) | Medium | Client ignores the message file argument | fixed (13fcf17) |
+| [Y-22](#y-22-relative-paths-in-yamnyml-ignore---dir) | Low | Relative paths in yamn.yml ignore `--dir` | fixed (6886742) |
 
 ---
 
@@ -383,3 +384,20 @@ Status values: **open**, **in progress**, **fixed** (with commit).
   reduces From to the bare address, and reports what it removed;
   `--keep-headers` turns it off. Stdin messages get the same treatment.
   Tests: `clientheaders_test.go`.
+
+### Y-22: Relative paths in yamn.yml ignore `--dir`
+
+- **Where:** `config/config.go` (`newConfig`, `ParseConfig`)
+- **Found:** 2026-10-21, while running the patched Echolot pinger with yamn
+  (not part of the original review).
+- **Details:** `--dir` was only added to the built-in default paths. A
+  relative path set in `yamn.yml` (e.g. `files: pubring: my.mix`) was used
+  relative to the current directory. That contradicts
+  `examples/yamn.yml.defaults` ("Paths are relative to --dir"). Echolot runs
+  yamn from its own directory, so a pinger's one-key keyring set this way
+  wasn't found.
+- **Status:** fixed in `6886742` (branch `fix/dir-relative-paths`). The
+  defaults are plain names; `ParseConfig` joins every relative path of the
+  files section with `--dir` after reading the file, and keeps absolute
+  paths. Tests: `TestDirRelativePaths`, `TestResolvePathsCoversFiles` in
+  `config/config_test.go`.
