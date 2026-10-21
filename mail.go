@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -30,12 +31,42 @@ func assemble(msg mail.Message) []byte {
 		}
 	}
 	buf.WriteString("\n")
-	buf.ReadFrom(msg.Body)
+	body, _ := io.ReadAll(msg.Body)
+	buf.Write(fixBareCR(body))
 	return buf.Bytes()
 }
 
+// fixBareCR turns every CR in b that isn't followed by LF into LF, in
+// place.  A lone CR isn't a line end to Go's SMTP client, so "\r.\r" would
+// reach the server unescaped, and some servers take that as the end of
+// DATA.  As an LF it's sent as CRLF, and a leading dot gets escaped.
+func fixBareCR(b []byte) []byte {
+	for i, c := range b {
+		if c == '\r' && (i+1 == len(b) || b[i+1] != '\n') {
+			b[i] = '\n'
+		}
+	}
+	return b
+}
+
+// badHeader returns the name of the first header in h with a CR or NUL in
+// its value, or "" if there is none.  net/mail keeps a lone CR inside a
+// value, and a receiver that takes it as a line end would see a header the
+// exit never filtered (e.g. "Reply-To: x@example\rFrom: ...").
+func badHeader(h mail.Header) string {
+	for k, values := range h {
+		for _, v := range values {
+			if strings.ContainsAny(v, "\r\x00") {
+				return k
+			}
+		}
+	}
+	return ""
+}
+
 // headToAddy parses a header containing email addresses.  Every occurrence
-// of the header is read, not only the first.
+// of the header is read, not only the first.  Addresses that fail
+// validRecipient are skipped.
 func headToAddy(h mail.Header, header string) (addys []string) {
 	for _, v := range h[header] {
 		addyList, err := mail.ParseAddressList(v)
@@ -44,10 +75,53 @@ func headToAddy(h mail.Header, header string) (addys []string) {
 			continue
 		}
 		for _, addy := range addyList {
+			if !validRecipient(addy.Address) {
+				log.Warnf("Ignoring an invalid address in the %s header", header)
+				continue
+			}
 			addys = append(addys, addy.Address)
 		}
 	}
 	return
+}
+
+// validRecipient reports whether addy is a plain ASCII address that is safe
+// to pass to RCPT TO and to match against the block list: one "@", a
+// dot-atom local part and a host name.  mail.ParseAddress returns a quoted
+// local part without its quotes, so it could carry "<", ">" or spaces (and
+// with them ESMTP parameters) into the RCPT command.  Source routes ("%",
+// "!"), address literals and a trailing dot are refused too, as they would
+// get past the destination block list.
+func validRecipient(addy string) bool {
+	local, domain, ok := strings.Cut(addy, "@")
+	if !ok || len(local) > 64 || len(addy) > 254 {
+		return false
+	}
+	for _, atom := range strings.Split(local, ".") {
+		if atom == "" || strings.IndexFunc(atom, func(c rune) bool { return !isAtext(c) }) >= 0 {
+			return false
+		}
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		if strings.IndexFunc(label, func(c rune) bool { return !isAlnum(c) && c != '-' }) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// isAlnum reports whether c is an ASCII letter or digit.
+func isAlnum(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
+// isAtext reports whether c may appear in a dot-atom (RFC 5322 atext),
+// leaving out "%" and "!", which some MTAs treat as routing.
+func isAtext(c rune) bool {
+	return isAlnum(c) || strings.ContainsRune("#$&'*+-/=?^_`{|}~", c)
 }
 
 // exitHeaders lists the headers passed through from a pooled message to the
@@ -261,6 +335,11 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 	if err != nil {
 		log.Errorf("Failed to process mail file: %s", err)
 		// If we can't process it, it'll never get sent.  Mark for delete.
+		delFlag = true
+		return
+	}
+	if h := badHeader(msg.Header); h != "" {
+		err = fmt.Errorf("%s: refusing to mail a %s header with a CR or NUL in it", filename, h)
 		delFlag = true
 		return
 	}
