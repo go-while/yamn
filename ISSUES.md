@@ -522,7 +522,8 @@ not part of the repository yet and come with the fixes.
   anything is pooled, and return errors instead of panicking.
 - **Found:** review 2, K-3. Test: `TestReviewTooManyChunks` (17,940 of
   4,585,060 bytes delivered).
-- **Status:** open.
+- **Status:** fixed in `10c7f3a` (branch `fix/31-chunk-limit`, #55). Tests:
+  `TestChunkLimit`, `TestChunkLimitExact`, `TestMessageReadLimit`.
 
 ### Y-32: Merged stats have no quorum
 
