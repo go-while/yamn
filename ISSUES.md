@@ -935,7 +935,8 @@ not part of the repository yet and come with the fixes.
 - **Fix:** recommend a scheduled `--refresh` with jitter, or add an option to
   never fetch at send time.
 - **Found:** review 2, K-13 (from reading the code).
-- **Status:** open.
+- **Status:** fixed in `6902217` (branch `fix/49-fetch-on-send`, #61). Tests:
+  `TestFetchOnSend`.
 
 ## Info
 
