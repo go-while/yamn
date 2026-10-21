@@ -130,12 +130,8 @@ func mixprep() {
 		os.Exit(1)
 	}
 
-	// Download stats URLs if the time is right
-	if cfg.Urls.Fetch {
-		// Retrieve Mlist2 and Pubring URLs
-		timedURLFetch(cfg.Urls.Pubring, cfg.Files.Pubring, keymgr.CheckPubring)
-		timedURLFetch(cfg.Urls.Mlist2, cfg.Files.Mlist2, keymgr.CheckStats)
-	}
+	// Download the keyring and stats if the time is right
+	refreshKeyring(false)
 
 	// Create the Public Keyring
 	Pubring = keymgr.NewPubring(

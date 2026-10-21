@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/dchest/blake2s"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -164,6 +165,23 @@ func (p Pubring) Get(ref string) (r Remailer, err error) {
 	return
 }
 
+// statsRow is one remailer's line in an mlist2.txt file.
+type statsRow struct {
+	name    string
+	latent  int    // Latency (minutes)
+	uptime  int    // Uptime (10ths of a %)
+	options string // Options column, as published
+}
+
+// warnFunc reports a problem with a single entry of a keyring or stats
+// file.  The entry is skipped and reading continues.
+type warnFunc func(format string, a ...any)
+
+// stderrWarn prints warnings to stderr, as the Import functions always have.
+func stderrWarn(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", a...)
+}
+
 // ImportStats reads an mlist2.txt style file into a Pubring struct
 func (p *Pubring) ImportStats() (err error) {
 	f, err := os.Open(p.statsFile)
@@ -171,26 +189,51 @@ func (p *Pubring) ImportStats() (err error) {
 		return
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	var remName string //Remailer name in stats
-	var remAddr string //Remailer address from xref
-	var lat []string   //Latency hours:minutes
-	var lathrs int     //Latent Hours
-	var latmin int     //Latent Minutes
-	var exists bool    //Test for presence of remailer in xref
+	generated, rows, err := readStats(f, p.statsFile, stderrWarn)
+	if err != nil {
+		return
+	}
+	p.statsGenerated = generated
+	for _, row := range rows {
+		remAddr, exists := p.xref[row.name]
+		if !exists {
+			fmt.Fprintf(os.Stderr, "%s: Stats for unknown remailer\n", row.name)
+			continue
+		}
+		tmp := p.pub[remAddr]
+		tmp.latent = row.latent
+		tmp.uptime = row.uptime
+		p.pub[remAddr] = tmp
+	}
+	// Update last-imported timestamp for stats
+	stat, err := os.Stat(p.statsFile)
+	if err != nil {
+		panic(err)
+	}
+	p.statsImported = stat.ModTime()
+	p.stats = true
+	return
+}
+
+// readStats parses an mlist2.txt style file: its Generated timestamp and
+// the rows of the stats table.  Malformed rows are reported through warn
+// and skipped.  name identifies the file in errors.
+func readStats(r io.Reader, name string, warn warnFunc) (generated time.Time, rows []statsRow, err error) {
+	scanner := bufio.NewScanner(r)
 	parsePhase := 0
 	/* Stat phases are:
 	0 Want Generated timestamp
 	1 Expecting long string of dashes
 	2 Expecting stats lines
+	3 Done (the empty line after the table)
 	*/
-	for scanner.Scan() {
+	for parsePhase < 3 && scanner.Scan() {
 		line := scanner.Text()
 		switch parsePhase {
 		case 0:
 			// Generated: Tue 07 Oct 2014 10:50:01 GMT
-			if strings.HasPrefix(line, "Generated: ") {
-				p.statsGenerated, err = time.Parse(generatedFormat, line[11:])
+			if stamp, ok := strings.CutPrefix(line, "Generated: "); ok {
+				generated, err = time.Parse(generatedFormat, stamp)
 				if err != nil {
 					err = fmt.Errorf("Failed to parse Generated date: %s", err)
 					return
@@ -203,94 +246,87 @@ func (p *Pubring) ImportStats() (err error) {
 				parsePhase++
 			}
 		case 2:
-			// Expecting stats
-			// Splitting the line at the % sign takes out the risk
-			// of Options being interpreted as an unpredictable
-			// number of fields.
-			line = strings.Split(line, "%")[0]
-			elements := strings.Fields(line)
+			// Expecting stats.  Splitting the line at the % sign takes
+			// out the risk of Options being interpreted as an
+			// unpredictable number of fields.
+			fields, options, _ := strings.Cut(line, "%")
+			elements := strings.Fields(fields)
 			if len(elements) == 0 {
 				// An empty line implies we've read all stats entries
 				parsePhase++
 				continue
-			} else if len(elements) != 5 {
-				fmt.Fprintf(
-					os.Stderr,
-					"Invalid stats line.  Expected 7 elements, got %d\n",
-					len(elements),
-				)
+			}
+			if len(elements) != 5 {
+				warn("Invalid stats line.  Expected 7 elements, got %d", len(elements))
 				continue
 			}
-			remName = elements[0]
-			remAddr, exists = p.xref[remName]
-			if !exists {
-				fmt.Fprintf(os.Stderr, "%s: Stats for unknown remailer\n", remName)
+			row, ok := parseStatsRow(elements, warn)
+			if !ok {
 				continue
 			}
-			// Element 2 is Latency in the format (hrs:mins)
-			lat = strings.Split(elements[2], ":")
-			if len(lat) != 2 {
-				fmt.Fprintf(os.Stderr, "%s: Invalid latency\n", remName)
-				continue
-			}
-			if lat[0] == "" {
-				lathrs = 0
-			} else {
-				lathrs, err = strconv.Atoi(lat[0])
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "%s: Invalid latent hours\n", remName)
-					continue
-				}
-				if lathrs < 0 || lathrs > 99 {
-					fmt.Fprintf(os.Stderr, "%s: Latent hours out of range\n", remName)
-					continue
-				}
-			}
-			latmin, err = strconv.Atoi(lat[1])
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: Invalid latent minutes\n", remName)
-				continue
-			}
-			if latmin < 0 || latmin > 59 {
-				fmt.Fprintf(os.Stderr, "%s: Latent minutes out of range\n", remName)
-				continue
-			}
-			// Element 4 is Uptime in format (xxx.xx)
-			uptmp, err := strconv.ParseFloat(elements[4], 32)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: Invalid uptime\n", remName)
-				continue
-			}
-			if uptmp < 0 || uptmp > 100 {
-				fmt.Fprintf(os.Stderr, "%s: Uptime out of range\n", remName)
-				continue
-			}
-			tmp := p.pub[remAddr]
-			tmp.latent = (lathrs * 60) + latmin
-			tmp.uptime = int(uptmp * 10)
-			p.pub[remAddr] = tmp
-		case 3:
-			// Reserved for future mlist2.txt processing
-			break
+			row.options = strings.TrimSpace(options)
+			rows = append(rows, row)
 		}
+	}
+	if err = scanner.Err(); err != nil {
+		return
 	}
 	// Test that all stats phases have been achieved.
 	if parsePhase < 3 {
 		err = fmt.Errorf(
 			"Unexpected EOF reading %s during phase %d",
-			p.statsFile,
+			name,
 			parsePhase,
 		)
+	}
+	return
+}
+
+// parseStatsRow reads the name, latency and uptime of a stats line, split
+// into its fields: name, latency history, latency, uptime history, uptime.
+func parseStatsRow(elements []string, warn warnFunc) (row statsRow, ok bool) {
+	row.name = elements[0]
+	// Element 2 is Latency in the format (hrs:mins)
+	lat := strings.Split(elements[2], ":")
+	if len(lat) != 2 {
+		warn("%s: Invalid latency", row.name)
 		return
 	}
-	// Update last-imported timestamp for stats
-	stat, err := os.Stat(p.statsFile)
-	if err != nil {
-		panic(err)
+	lathrs := 0
+	if lat[0] != "" {
+		var err error
+		lathrs, err = strconv.Atoi(lat[0])
+		if err != nil {
+			warn("%s: Invalid latent hours", row.name)
+			return
+		}
+		if lathrs < 0 || lathrs > 99 {
+			warn("%s: Latent hours out of range", row.name)
+			return
+		}
 	}
-	p.statsImported = stat.ModTime()
-	p.stats = true
-	return
+	latmin, err := strconv.Atoi(lat[1])
+	if err != nil {
+		warn("%s: Invalid latent minutes", row.name)
+		return
+	}
+	if latmin < 0 || latmin > 59 {
+		warn("%s: Latent minutes out of range", row.name)
+		return
+	}
+	// Element 4 is Uptime in format (xxx.xx)
+	uptmp, err := strconv.ParseFloat(elements[4], 32)
+	if err != nil {
+		warn("%s: Invalid uptime", row.name)
+		return
+	}
+	if uptmp < 0 || uptmp > 100 {
+		warn("%s: Uptime out of range", row.name)
+		return
+	}
+	row.latent = (lathrs * 60) + latmin
+	row.uptime = int(uptmp * 10)
+	return row, true
 }
 
 func Headers(filename string) (headers []string, err error) {
@@ -318,14 +354,28 @@ func (p *Pubring) ImportPubring() (err error) {
 		return
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	var elements []string
-	var num_elements int
-	var line string //Each line within Pubring.mix
+	rems, err := readPubring(f, time.Now(), p.useExpired, stderrWarn)
+	if err != nil {
+		return
+	}
+	for _, rem := range rems {
+		p.Put(rem)
+	}
+	// Set key imported timestamp
+	stat, err := os.Stat(p.pubringFile)
+	if err != nil {
+		panic(err)
+	}
+	p.keysImported = stat.ModTime()
+	return
+}
+
+// readPubring parses a pubring.mix file and returns its keys that are
+// valid at now (and expired ones too if useExpired is set).  Malformed or
+// invalid keys are reported through warn and skipped.
+func readPubring(r io.Reader, now time.Time, useExpired bool, warn warnFunc) (rems []Remailer, err error) {
+	scanner := bufio.NewScanner(r)
 	var rem *Remailer
-	var pkdata []byte // Decoded Public key
-	// The following two dates are used for validity checking.
-	now := time.Now()
 	key_phase := 0
 	/* Key phases are:
 	0	Expecting header line
@@ -336,45 +386,39 @@ func (p *Pubring) ImportPubring() (err error) {
 	*/
 
 	for scanner.Scan() {
-		line = scanner.Text()
+		line := scanner.Text()
 		switch key_phase {
 		case 0:
 			// Expecting key header line
-			elements = strings.Split(line, " ")
-			num_elements = len(elements)
+			elements := strings.Split(line, " ")
 			// 7 elements indicates a remailer header line in Pubring.mix
-			if num_elements != 7 {
+			if len(elements) != 7 {
 				continue
 			}
 			from, err := time.Parse(date_format, elements[5])
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "Malformed valid-from date")
-				key_phase = 0
+				warn("Malformed valid-from date")
 				continue
 			}
 			fromLastMidnight, _ := midnights(from)
 			if now.Before(fromLastMidnight) {
-				fmt.Fprintln(os.Stderr, elements[0]+": Key not yet valid")
-				key_phase = 0
+				warn("%s: Key not yet valid", elements[0])
 				continue
 			}
 			until, err := time.Parse(date_format, elements[6])
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "Malformed valid-to date")
-				key_phase = 0
+				warn("Malformed valid-to date")
 				continue
 			}
 			// Calculate the next midnight after the until date.
 			_, untilNextMidnight := midnights(until)
-			if !p.useExpired && now.After(untilNextMidnight) {
-				fmt.Fprintf(
-					os.Stderr,
-					"Key expired: Name=%s, Key=%s, Date=%s\n",
+			if !useExpired && now.After(untilNextMidnight) {
+				warn(
+					"Key expired: Name=%s, Key=%s, Date=%s",
 					elements[0],
 					elements[2],
 					elements[6],
 				)
-				key_phase = 0
 				continue
 			}
 			rem = new(Remailer)
@@ -382,8 +426,7 @@ func (p *Pubring) ImportPubring() (err error) {
 			rem.Keyid, err = hex.DecodeString(elements[2])
 			if err != nil {
 				// keyid is not valid hex
-				fmt.Fprintln(os.Stderr, "Keyid in header is not hex")
-				key_phase = 0
+				warn("Keyid in header is not hex")
 				continue
 			}
 			rem.from = from
@@ -402,39 +445,35 @@ func (p *Pubring) ImportPubring() (err error) {
 			keyid, err := hex.DecodeString(line)
 			if err != nil {
 				// keyid is not valid hex
-				fmt.Fprintln(os.Stderr, "Keyid in pubkey is not hex")
+				warn("Keyid in pubkey is not hex")
 				key_phase = 0
 				continue
 			}
 			if !bytes.Equal(keyid, rem.Keyid) {
 				// Corrupt keyblock - header keyid doesn't match keyid in block
-				fmt.Fprintln(os.Stderr, "Keyid in header differs from keyid in pubkey")
+				warn("Keyid in header differs from keyid in pubkey")
 				key_phase = 0
 				continue
 			}
 			key_phase = 3
 		case 3:
 			// Expecting Public key
-			pkdata, err = hex.DecodeString(line)
+			pkdata, err := hex.DecodeString(line)
 			if err != nil {
 				// Public key is not valid hex
-				fmt.Fprintln(os.Stderr, "Unable to decode Public key")
+				warn("Unable to decode Public key")
 				key_phase = 0
 				continue
 			}
 			if len(pkdata) != 32 {
-				fmt.Fprintln(os.Stderr, "Public key is not 32 bits")
+				warn("Public key is not 32 bits")
 				key_phase = 0
 				continue
 			}
 			// The keyid is defined as the hash of the public key.  A
 			// mismatch means the key block was altered or corrupted.
 			if !bytes.Equal(makeKeyID(pkdata), rem.Keyid) {
-				fmt.Fprintf(
-					os.Stderr,
-					"%s: Keyid does not match public key. Ignoring key.\n",
-					rem.name,
-				)
+				warn("%s: Keyid does not match public key. Ignoring key.", rem.name)
 				key_phase = 0
 				continue
 			}
@@ -443,18 +482,12 @@ func (p *Pubring) ImportPubring() (err error) {
 		case 4:
 			// Expecting end cutmark
 			if line == "-----End Mix Key-----" {
-				p.Put(*rem)
+				rems = append(rems, *rem)
 				key_phase = 0
 			}
 		} // End of phases
 	} // End of file scan loop
-
-	// Set key imported timestamp
-	stat, err := os.Stat(p.pubringFile)
-	if err != nil {
-		panic(err)
-	}
-	p.keysImported = stat.ModTime()
+	err = scanner.Err()
 	return
 }
 
