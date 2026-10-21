@@ -963,7 +963,21 @@ not part of the repository yet and come with the fixes.
 - **Display names:** they can be spoofed under `custom_from: false`
   (`"security@bank" <remailer@…>`).
 - **Found:** review 2, M-15 to M-20.
-- **Status:** open.
+- **Status:** fixed in `f2f1910`, `13e55df`, `a13e71a`, `5d352fa`, `86af59b`,
+  `8a5c483`, `d210c8d`, `08e3bf3`, `46a9568`, `8129593`, `55a9c74` (branch
+  `fix/50-mail-details`). `.onion` MX hosts are always skipped (`onion_relay`
+  is ignored with a warning) and `.onion` recipients fail permanently;
+  `@domain` block entries match subdomains (`%` and address literals were
+  already refused by `validRecipient`); Maildir `cur/` is always processed;
+  `require_tls` implies `usetls`; EHLO gives `mailDomain()`; Date and
+  Message-ID are UTC; the pipe command is killed after 5 minutes and an empty
+  one is an error; duplicate recipients ignore case; `remailer-conf` lists the
+  passed headers; `.rejected` uses the new `pool.rejected_age` (7 days); a
+  display name with `@` is replaced by `outbound_name`. Tests:
+  `TestMXLookupFailures`, `TestDestBlock`, `TestProcessMailReadsCur`,
+  `TestSmtpSendRequireTLSWithoutUseTLS`, `TestSmtpSendHello`,
+  `TestMailDatesUTC`, `TestExecSendTimeout`, `TestUniqueAddresses`,
+  `TestRemailerConfHeaders`, `TestExpireRejected`, `TestParseFromName`.
 
 ### Y-51: Smaller client and documentation issues
 
