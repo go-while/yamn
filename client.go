@@ -34,11 +34,21 @@ func readMessageFile(filename string) []byte {
 	return readMessage(f, filename)
 }
 
+// maxChunks is the most chunks a message can have: the packet stores the
+// number of chunks in a single byte.
+const maxChunks = 255
+
+// maxMessageRead is the most bytes readMessage reads.  It's well above the
+// largest message that fits into maxChunks chunks, as headers can still be
+// removed, and only keeps yamn from reading an endless input.
+var maxMessageRead int64 = 2 * maxChunks * maxFragLength
+
 // readMessage reads the plaintext message to be sent from r (named name in
 // error messages), applies --to and --subject, and removes headers that
 // could identify the sender unless --keep-headers is given.
 func readMessage(r io.Reader, name string) []byte {
-	msg, err := mail.ReadMessage(r)
+	limited := &io.LimitedReader{R: r, N: maxMessageRead + 1}
+	msg, err := mail.ReadMessage(limited)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: Malformed mail message\n", name)
 		os.Exit(1)
@@ -57,6 +67,12 @@ func readMessage(r io.Reader, name string) []byte {
 	if flag.Subject != "" {
 		msg.Header["Subject"] = []string{flag.Subject}
 	}
+	// The exit only sends to To, Cc and Bcc addresses and drops a message
+	// without any, so it isn't sent at all.
+	if !hasRecipient(msg.Header) {
+		fmt.Fprintf(os.Stderr, "%s: No recipient: the message needs a To, Cc or Bcc address\n", name)
+		os.Exit(1)
+	}
 	if !flag.KeepHeaders {
 		if removed := stripClientHeaders(msg.Header); len(removed) > 0 {
 			fmt.Fprintf(
@@ -67,7 +83,23 @@ func readMessage(r io.Reader, name string) []byte {
 			)
 		}
 	}
-	return assemble(*msg)
+	plain := assemble(*msg)
+	if limited.N <= 0 {
+		fmt.Fprintf(os.Stderr, "%s: Message larger than %d bytes\n", name, maxMessageRead)
+		os.Exit(1)
+	}
+	return plain
+}
+
+// hasRecipient reports whether h has an address in To, Cc or Bcc, the
+// headers an exit sends to.
+func hasRecipient(h mail.Header) bool {
+	for _, k := range []string{"To", "Cc", "Bcc"} {
+		if len(headToAddy(h, k)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // stripClientHeaders removes headers that could identify the sender before a
@@ -75,8 +107,13 @@ func readMessage(r io.Reader, name string) []byte {
 // exit passes on (see headerAllowed) plus Bcc, which the exit needs to find
 // the hidden recipients.  Date and Message-Id are removed: the exit sets its
 // own, and they can show the sender's time zone and host name.  From is kept
-// as a bare address, without the display name.
+// as a bare address, without the display name.  Headers with a CR or NUL in
+// them are removed too, as an exit refuses the message.
 func stripClientHeaders(h mail.Header) (removed []string) {
+	for k := badHeader(h); k != ""; k = badHeader(h) {
+		delete(h, k)
+		removed = append(removed, k+" (CR or NUL)")
+	}
 	extra := extraAllowedHeaders()
 	for k := range h {
 		keep := k == "Bcc" || (headerAllowed(k, extra) && k != "Date" && k != "Message-Id")
@@ -117,10 +154,13 @@ func mixprep() {
 	} else if len(flag.Args) == 1 {
 		// A single arg should be the filename
 		plain = readMessageFile(flag.Args[0])
-	} else if len(flag.Args) >= 2 {
+	} else if len(flag.Args) == 2 {
 		// Two args should be recipient and filename
 		flag.To = flag.Args[0]
 		plain = readMessageFile(flag.Args[1])
+	} else {
+		fmt.Fprintf(os.Stderr, "Too many arguments: %q (expected [recipient] [filename])\n", flag.Args)
+		os.Exit(1)
 	}
 	// plainLen is the length of the plain byte message and can exceed
 	// the total body size of the payload.
@@ -145,23 +185,33 @@ func mixprep() {
 	}
 	err = Pubring.ImportPubring()
 	if err != nil {
-		log.Warnf("Pubring import failed: %s", cfg.Files.Pubring)
-		return
+		log.Errorf("Pubring import failed: %s: %s", cfg.Files.Pubring, err)
+		os.Exit(1)
 	}
 	// Read the chain from flag or config
-	var inChain []string
+	chainText := cfg.Stats.Chain
+	if flag.Chain != "" {
+		chainText = flag.Chain
+	}
+	inChain, err := parseChain(chainText)
+	if err != nil {
+		log.Error(err)
+		os.Exit(1)
+	}
 	var inChainFunc []string
-	if flag.Chain == "" {
-		inChain = strings.Split(cfg.Stats.Chain, ",")
-	} else {
-		inChain = strings.Split(flag.Chain, ",")
-	}
-	if len(inChain) == 0 {
-		log.Fatal("empty input chain")
-	}
 	copies := numCopies()
 	var cnum int // Chunk number
 	numc := int(math.Ceil(float64(plainLen) / float64(maxFragLength)))
+	// Checked before anything is pooled: a part of the message must not be
+	// sent.
+	if numc > maxChunks {
+		fmt.Fprintf(
+			os.Stderr,
+			"Message too large: %d bytes need %d chunks, at most %d (%d bytes) are possible\n",
+			plainLen, numc, maxChunks, maxChunks*maxFragLength,
+		)
+		os.Exit(1)
+	}
 	final.setNumChunks(numc)
 	// The exit is chosen once for the whole message: every chunk and copy
 	// must reach the same exit remailer for the chunks to be reassembled.
@@ -169,6 +219,9 @@ func mixprep() {
 	var gotExit bool    // Flag to indicate an exit node has been selected
 	var firstByte int   // First byte of message slice
 	var lastByte int    // Last byte of message slice
+	// All chunks and copies are encoded before the first is pooled, so a
+	// failure can't leave a part of the message to be sent.
+	var encoded []encodedMail
 	// Fragments loop begins here
 	for cnum = 1; cnum <= numc; cnum++ {
 		final.setChunkNum(cnum)
@@ -192,7 +245,7 @@ func mixprep() {
 			chain, err = makeChain(inChainFunc)
 			if err != nil {
 				log.Error(err)
-				os.Exit(0)
+				os.Exit(1)
 			}
 			if len(chain) != len(inChain) {
 				err = fmt.Errorf("chain length mismatch: in=%d, out=%d", len(inChain), len(chain))
@@ -205,27 +258,54 @@ func mixprep() {
 			}
 			// Retain the entry hop.  We need to mail the message to it.
 			sendTo := chain[0]
-			// Report the chain if we're running as a client.
+			// Report the chain if we're running as a client, at debug
+			// level only: a log file shouldn't show who was mailed how.
 			if flag.Client {
-				log.Infof("Chain: %s\n", strings.Join(chain, ","))
+				log.Debugf("Chain: %s", strings.Join(chain, ","))
 			}
-			yamnMsg := encodeMsg(
+			yamnMsg, err := encodeMsg(
 				plain[firstByte:lastByte],
 				chain,
 				*final,
 			)
-			if err = outputMessage(sendTo, yamnMsg); err != nil {
+			if err != nil {
 				log.Error(err)
 				os.Exit(1)
 			}
+			encoded = append(encoded, encodedMail{sendTo, yamnMsg})
 		} // End of copies loop
 	} // End of fragments loop
+	for _, m := range encoded {
+		if err = outputMessage(m.sendTo, m.msg); err != nil {
+			log.Error(err)
+			os.Exit(1)
+		}
+	}
 
 	// Decide if we want to inject a dummy.  Not with --stdout: dummies are
 	// sent from the pool, and nothing else from this message is.
 	if !flag.NoDummy && !flag.Stdout && Pubring.HaveStats() && crandom.Dice() < 80 {
 		dummy()
 	}
+}
+
+// encodedMail is an encrypted packet and the first hop to send it to.
+type encodedMail struct {
+	sendTo string
+	msg    []byte
+}
+
+// parseChain splits a chain given as "rem1,rem2,..." into its hops.  Spaces
+// around a hop are ignored, and an empty hop is an error.
+func parseChain(s string) ([]string, error) {
+	hops := strings.Split(s, ",")
+	for i, hop := range hops {
+		hops[i] = strings.TrimSpace(hop)
+		if hops[i] == "" {
+			return nil, fmt.Errorf("chain %q: empty hop", s)
+		}
+	}
+	return hops, nil
 }
 
 // mailOutput receives the encrypted mails with --stdout.  Tests replace it.
@@ -255,11 +335,12 @@ func numCopies() int {
 	return max(1, min(copies, maxCopies))
 }
 
-// encodeMsg encodes a plaintext fragment into mixmaster format.
+// encodeMsg encodes a plaintext fragment into mixmaster format.  It fails if
+// a hop isn't in the public keyring.
 func encodeMsg(
 	plain []byte,
 	chain []string,
-	final slotFinal) []byte {
+	final slotFinal) ([]byte, error) {
 
 	var err error
 	var hop string
@@ -284,11 +365,7 @@ func encodeMsg(
 	// Get KeyID and NaCl PK for the remailer we're enrypting to.
 	remailer, err := Pubring.Get(hop)
 	if err != nil {
-		log.Errorf(
-			"%s: Remailer unknown in public keyring\n",
-			hop,
-		)
-		os.Exit(1)
+		return nil, err
 	}
 	// Create a new Header.
 	header := newEncodeHeader()
@@ -340,11 +417,7 @@ func encodeMsg(
 		header = newEncodeHeader()
 		remailer, err := Pubring.Get(hop)
 		if err != nil {
-			log.Errorf(
-				"%s: Remailer unknown in public keyring\n",
-				hop,
-			)
-			os.Exit(1)
+			return nil, err
 		}
 		header.setRecipient(remailer.Keyid, remailer.PK)
 		log.Tracef(
@@ -357,7 +430,7 @@ func encodeMsg(
 	if len(chain) != 0 {
 		panic("After encoding, chain was not empty.")
 	}
-	return m.getPayload()
+	return m.getPayload(), nil
 }
 
 func injectDummy() {
@@ -380,7 +453,9 @@ func timedURLFetch(url, filename string, validate func([]byte) error) {
 		stamp, err = fileTime(filename)
 		if err != nil {
 			doFetch = true
-		} else if time.Since(stamp) > time.Hour {
+		} else if age := time.Since(stamp); age > time.Hour || age < -time.Minute {
+			// A file dated in the future, e.g. unpacked from an archive,
+			// would otherwise never be fetched again.
 			doFetch = true
 		} else {
 			doFetch = false
@@ -399,13 +474,9 @@ func timedURLFetch(url, filename string, validate func([]byte) error) {
 func dummy() {
 	var err error
 	plainMsg := []byte("I hope Len approves")
-	// Make a single hop chain with a random node
-	var inChain []string
-	if flag.Chain == "" {
-		inChain = []string{"*", "*"}
-	} else {
-		inChain = strings.Split(flag.Chain, ",")
-	}
+	// A random two-hop chain.  Not --chain: the dummy shouldn't take the
+	// path of the real message.
+	inChain := []string{"*", "*"}
 	final := newSlotFinal()
 	// Override the default delivery method (255 = Dummy)
 	final.setDeliveryMethod(255)
@@ -421,7 +492,11 @@ func dummy() {
 		return
 	}
 	log.Tracef("Sending dummy through: %s.", strings.Join(chain, ","))
-	yamnMsg := encodeMsg(plainMsg, chain, *final)
+	yamnMsg, err := encodeMsg(plainMsg, chain, *final)
+	if err != nil {
+		log.Warnf("Dummy creation failed: %s", err)
+		return
+	}
 	if err = writeMessageToPool(sendTo, yamnMsg); err != nil {
 		log.Warnf("Dummy creation failed: %s", err)
 	}

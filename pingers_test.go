@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -180,6 +181,24 @@ func TestRefreshKeyringSingle(t *testing.T) {
 	refreshKeyring(true)
 	if _, err := os.Stat(cfg.Files.Pubring); err != nil {
 		t.Error("--refresh didn't download")
+	}
+}
+
+// TestRefreshKeyringPlainHTTPWarning checks that plain http pinger URLs are
+// warned about.
+func TestRefreshKeyringPlainHTTPWarning(t *testing.T) {
+	setupTestConfig(t)
+	alpha, _ := pingerKey("alpha", 1)
+	a := newFakePinger(t, alpha, pingerStats("alpha        000000000000    :10   ++++++++++++  100.0%  D"))
+	dir := t.TempDir()
+	cfg.Files.Pubring = filepath.Join(dir, "pubring.mix")
+	cfg.Files.Mlist2 = filepath.Join(dir, "mlist2.txt")
+	cfg.Urls.Pingers = []config.Pinger{a.config("a")}
+	logged := captureLog(t)
+	refreshKeyring(true)
+	if !strings.Contains(logged.String(), a.URL+"/pubring.mix is plain http") ||
+		!strings.Contains(logged.String(), a.URL+"/mlist2.txt is plain http") {
+		t.Errorf("no warning about plain http:\n%s", logged)
 	}
 }
 

@@ -183,21 +183,29 @@ func TestMergeRotation(t *testing.T) {
 	checkKeys(t, res, alphaNew, beta)
 }
 
-// TestMergeQuorumShrinks checks that with fewer usable keyrings than the
-// quorum, all of them must agree, and that it's reported.
-func TestMergeQuorumShrinks(t *testing.T) {
-	res := merge(2,
-		PingerFiles{Name: "a", Pubring: testPubring(alpha, beta)},
-		PingerFiles{Name: "b", Pubring: []byte("<html>not a keyring</html>")},
-		PingerFiles{Name: "c"},
-	)
+// TestMergeQuorumNotLowered checks that with fewer usable keyrings than the
+// quorum nothing is merged (the current keyring is kept), so one pinger
+// can't decide the keys, e.g. on a first run.  A lower key_quorum is the
+// way to accept fewer.
+func TestMergeQuorumNotLowered(t *testing.T) {
+	pingers := []PingerFiles{
+		{Name: "a", Pubring: testPubring(alpha, beta), Stats: testStats(time.Hour, "alpha 10 100")},
+		{Name: "b", Pubring: []byte("<html>not a keyring</html>")},
+		{Name: "c"},
+	}
+	res := merge(2, pingers...)
+	if res.Pubring != nil || res.Stats != nil {
+		t.Errorf("merged with 1 usable keyring and key_quorum 2:\n%s", res.Pubring)
+	}
+	w := strings.Join(res.Warnings, "\n")
+	if !strings.Contains(w, "b: keyring unusable") ||
+		!strings.Contains(w, "only 1 of 3 pinger(s) have a usable keyring, key_quorum is 2; keeping the current one") {
+		t.Errorf("missing warnings: %v", res.Warnings)
+	}
+	res = merge(1, pingers...)
 	checkKeys(t, res, alpha, beta)
 	if res.Quorum != 1 {
 		t.Errorf("quorum %d, want 1", res.Quorum)
-	}
-	w := strings.Join(res.Warnings, "\n")
-	if !strings.Contains(w, "b: keyring unusable") || !strings.Contains(w, "only 1 pinger(s)") {
-		t.Errorf("missing warnings: %v", res.Warnings)
 	}
 
 	res = merge(2, PingerFiles{Name: "a"}, PingerFiles{Name: "b", Pubring: []byte("junk")})
@@ -254,13 +262,44 @@ func TestMergeHeaderMajority(t *testing.T) {
 	}
 }
 
+// TestMergeHeaderTie checks that when the pingers publishing a key are
+// split evenly on its header, each field is decided conservatively, not by
+// the pinger with the newest (here future-dated) stats.
+func TestMergeHeaderTie(t *testing.T) {
+	honest := alpha
+	honest.caps, honest.version = "M", "4:0.2.7"
+	lying := alpha
+	lying.caps, lying.version, lying.from, lying.to = "E", "4:0.2.8", "2026-10-10", "2026-12-31"
+	res := merge(2,
+		PingerFiles{Name: "honest", Pubring: testPubring(honest), Stats: testStats(time.Hour, "alpha 10 100")},
+		PingerFiles{Name: "evil", Pubring: testPubring(lying), Stats: testStats(-1000*time.Hour, "alpha 10 100")},
+	)
+	rems, err := readPubring(bytes.NewReader(res.Pubring), mergeNow, false, func(string, ...any) {})
+	if err != nil || len(rems) != 1 {
+		t.Fatalf("keys %v, %v; warnings %v", rems, err, res.Warnings)
+	}
+	r := rems[0]
+	if got := r.header(); got != "alpha alpha@example.org "+alpha.keyid()+" 4:0.2.7 M 2026-10-15 2026-10-29" {
+		t.Errorf("merged header %q, want the middleman, the later from and the earlier until", got)
+	}
+	// A majority still decides.
+	res = merge(2,
+		PingerFiles{Name: "a", Pubring: testPubring(lying)},
+		PingerFiles{Name: "b", Pubring: testPubring(lying)},
+		PingerFiles{Name: "c", Pubring: testPubring(honest)},
+	)
+	if !bytes.Contains(res.Pubring, []byte(" 4:0.2.8 E 2026-10-10 2026-12-31")) {
+		t.Errorf("majority header not used:\n%s", res.Pubring)
+	}
+}
+
 func TestMergeStats(t *testing.T) {
 	ring := testPubring(alpha, beta, gamma)
 	res := merge(2,
-		PingerFiles{Name: "a", Pubring: ring, Stats: testStats(1*time.Hour, "alpha 10 100.0", "beta 30 99.0")},
-		PingerFiles{Name: "b", Pubring: ring, Stats: testStats(2*time.Hour, "alpha 20 98.0", "beta 50 97.0", "gamma 75 90.0")},
+		PingerFiles{Name: "a", Pubring: ring, Stats: testStats(1*time.Hour, "alpha 10 100.0", "beta 70 99.0")},
+		PingerFiles{Name: "b", Pubring: ring, Stats: testStats(2*time.Hour, "alpha 20 98.0", "beta 80 97.0", "gamma 75 90.0")},
 		PingerFiles{Name: "c", Pubring: ring, Stats: testStats(3*time.Hour, "alpha 40 99.5")},
-		// Stale stats are ignored.
+		// Stale stats aren't needed: enough fresh ones.
 		PingerFiles{Name: "d", Pubring: ring, Stats: testStats(30*time.Hour, "alpha 600 10.0", "beta 600 10.0")},
 	)
 	if res.Stats == nil {
@@ -282,8 +321,8 @@ func TestMergeStats(t *testing.T) {
 		latent, uptime int
 	}{
 		{"alpha@example.org", 20, 995}, // median of 3
-		{"beta@example.org", 50, 970},  // 2 values: the worse of each
-		{"gamma@example.org", 75, 900}, // only one pinger has stats
+		{"beta@example.org", 75, 980},  // 2 values: the mean, rounded to the worse
+		{"gamma@example.org", 0, 0},    // only one pinger has stats: none
 	} {
 		r := p.pub[c.addr]
 		if r.latent != c.latent || r.uptime != c.uptime {
@@ -294,12 +333,111 @@ func TestMergeStats(t *testing.T) {
 	if wantGen := mergeNow.Add(-3 * time.Hour); !p.statsGenerated.Equal(wantGen) {
 		t.Errorf("Generated %s, want %s", p.statsGenerated, wantGen)
 	}
-	if !strings.Contains(strings.Join(res.Notes, "\n"), "d: stats are 30h0m0s old, not used") {
+	notes := strings.Join(res.Notes, "\n")
+	if !strings.Contains(notes, "d: stats are 30h0m0s old, not used") {
 		t.Errorf("stale stats not reported: %v", res.Notes)
+	}
+	if !strings.Contains(notes, "gamma: stats from 1 pingers, 2 needed; not used") {
+		t.Errorf("gamma's missing quorum not reported: %v", res.Notes)
 	}
 	// Latencies over an hour use the hh:mm form.
 	if !bytes.Contains(res.Stats, []byte(" 1:15   ")) {
-		t.Errorf("gamma's latency not formatted as 1:15:\n%s", res.Stats)
+		t.Errorf("beta's latency not formatted as 1:15:\n%s", res.Stats)
+	}
+}
+
+// mergedStats returns the merged uptime of each remailer.
+func mergedStats(t *testing.T, res MergeResult) map[string]int {
+	t.Helper()
+	up := make(map[string]int)
+	if res.Stats == nil {
+		return up
+	}
+	_, rows, err := readStats(bytes.NewReader(res.Stats), "merged", func(f string, a ...any) { t.Errorf(f, a...) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		up[r.name] = r.uptime
+	}
+	return up
+}
+
+// TestMergeStatsQuorum checks that one pinger can't decide a remailer's
+// stats: they come from key_quorum pingers, older ones filling in when
+// there are too few fresh ones, and future-dated stats aren't used.
+func TestMergeStatsQuorum(t *testing.T) {
+	ring := testPubring(alpha, beta)
+	honest := "alpha 10 100"
+	// Two fresh pingers: the true median, not the worse value.
+	res := merge(2,
+		PingerFiles{Name: "a", Pubring: ring, Stats: testStats(time.Hour, honest, "beta 10 100")},
+		PingerFiles{Name: "b", Pubring: ring, Stats: testStats(30*time.Hour, honest, "beta 10 100")},
+		PingerFiles{Name: "evil", Pubring: ring, Stats: testStats(time.Hour, "alpha 10 0", "beta 10 100")},
+	)
+	if up := mergedStats(t, res); up["alpha"] != 500 || up["beta"] != 1000 {
+		t.Errorf("two fresh pingers: uptimes %v, want alpha 500 beta 1000", up)
+	}
+	// Only one fresh pinger: the newest stale one fills in.
+	res = merge(2,
+		PingerFiles{Name: "a", Pubring: ring, Stats: testStats(30*time.Hour, honest, "beta 10 100")},
+		PingerFiles{Name: "b", Pubring: ring, Stats: testStats(40*time.Hour, honest, "beta 10 50")},
+		PingerFiles{Name: "evil", Pubring: ring, Stats: testStats(time.Hour, "alpha 10 0", "beta 10 0")},
+	)
+	if up := mergedStats(t, res); up["alpha"] != 500 || up["beta"] != 500 {
+		t.Errorf("one fresh pinger: uptimes %v, want 500 each", up)
+	}
+	if !strings.Contains(strings.Join(res.Notes, "\n"), "a: stats are 30h0m0s old, used where fresher ones are missing") {
+		t.Errorf("fallback not reported: %v", res.Notes)
+	}
+	if !strings.Contains(strings.Join(res.Notes, "\n"), "b: stats are 40h0m0s old, not used") {
+		t.Errorf("unused stats not reported: %v", res.Notes)
+	}
+	// Future stats aren't fresh, and aren't used at all.
+	res = merge(2,
+		PingerFiles{Name: "a", Pubring: ring, Stats: testStats(time.Hour, honest, "beta 10 100")},
+		PingerFiles{Name: "b", Pubring: ring, Stats: testStats(2*time.Hour, honest, "beta 10 100")},
+		PingerFiles{Name: "evil", Pubring: ring, Stats: testStats(-1000*time.Hour, "alpha 10 0", "beta 10 0")},
+	)
+	if up := mergedStats(t, res); up["alpha"] != 1000 || up["beta"] != 1000 {
+		t.Errorf("future stats: uptimes %v, want 1000 each", up)
+	}
+	if !strings.Contains(strings.Join(res.Warnings, "\n"), "evil: stats are dated in the future") {
+		t.Errorf("future stats not reported: %v", res.Warnings)
+	}
+	// A little clock skew is fine.
+	res = merge(2,
+		PingerFiles{Name: "a", Pubring: ring, Stats: testStats(-30*time.Minute, honest, "beta 10 100")},
+		PingerFiles{Name: "b", Pubring: ring, Stats: testStats(time.Hour, honest, "beta 10 100")},
+	)
+	if up := mergedStats(t, res); len(up) != 2 {
+		t.Errorf("stats 30 minutes ahead: %v %v", up, res.Warnings)
+	}
+	// Not enough pingers with stats at all: no merged stats.
+	res = merge(2,
+		PingerFiles{Name: "a", Pubring: ring, Stats: testStats(time.Hour, honest, "beta 10 100")},
+		PingerFiles{Name: "b", Pubring: ring},
+	)
+	if res.Stats != nil {
+		t.Errorf("stats from one pinger used:\n%s", res.Stats)
+	}
+}
+
+func TestMedian(t *testing.T) {
+	for _, c := range []struct {
+		v           []int
+		higherWorse bool
+		want        int
+	}{
+		{[]int{5}, true, 5},
+		{[]int{9, 1, 5}, false, 5},
+		{[]int{10, 15}, true, 13},
+		{[]int{10, 15}, false, 12},
+		{[]int{0, 1000, 990, 1000}, false, 995},
+	} {
+		if got := median(c.v, c.higherWorse); got != c.want {
+			t.Errorf("median(%v, %v) = %d, want %d", c.v, c.higherWorse, got, c.want)
+		}
 	}
 }
 

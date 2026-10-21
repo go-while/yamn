@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Masterminds/log-go"
@@ -39,6 +40,9 @@ func refreshKeyring(force bool) {
 	fetch := func(url, filename string, validate func([]byte) error) {
 		if url == "" {
 			return
+		}
+		if strings.HasPrefix(strings.ToLower(url), "http://") {
+			log.Warnf("%s is plain http: anyone on the network path can change the download", url)
 		}
 		if !force {
 			timedURLFetch(url, filename, validate)
