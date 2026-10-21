@@ -73,6 +73,8 @@ type Config struct {
 		MessageDomain string `yaml:"message_domain"`
 		// Extra headers an exit passes through, besides the built-in list
 		AllowHeaders []string `yaml:"allow_headers"`
+		// Most recipients an exit mails one message to; 0 = no limit
+		MaxRecipients int `yaml:"max_recipients"`
 	} `yaml:"mail"`
 	Stats struct {
 		Minlat     int     `yaml:"minlat"`
@@ -331,6 +333,9 @@ func (f *Flags) newConfig() *Config {
 	c.Mail.OutboundAddy = "remailer@domain.invalid"
 	c.Mail.CustomFrom = false
 	c.Mail.MessageDomain = ""
+	// Enough for personal mail, but one message can't be fanned out to
+	// hundreds of addresses.
+	c.Mail.MaxRecipients = 10
 	c.Stats.Minrel = 98.0
 	c.Stats.Relfinal = 99.0
 	c.Stats.Minlat = 2
