@@ -63,9 +63,22 @@ option.
 .B "--keep-headers"
 In client mode, send the message's headers as they are.  Without it, yamn
 removes headers that could identify you before encrypting the message: anything
-an exit wouldn't pass on anyway, plus Date and Message-ID, the name in
-From, and headers with a CR or NUL in them (an exit refuses those).  It
-reports what it removed.
+an exit wouldn't pass on anyway, plus Date, Message-ID, From and Reply-To,
+and headers with a CR or NUL in them (an exit refuses those).  It
+reports what it removed.  The exit writes its own From, so the message is
+still delivered with one.
+.TP
+.B "--keep-from"
+In client mode, send the message's From header.  Most exits keep only the
+name from it and put their own address after it, so a From such as
+.I "Bob <x@example.invalid>"
+signs the message with a pseudonym.  An exit with
+.B custom_from
+enabled delivers the address too.
+.TP
+.B "--keep-reply-to"
+In client mode, send the message's Reply-To header.  Every exit delivers
+it unchanged, so use it only with an address that doesn't identify you.
 .TP
 .B "-l, --chain=\fIrem1,rem2,rem3,..."
 Use the defined chain to route the message through the Yamn network.  Random

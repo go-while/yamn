@@ -76,7 +76,8 @@ func TestStripClientHeadersBareCR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	removed := stripClientHeaders(msg.Header)
+	// Keep From and Reply-To, so only the CR and NUL removals are reported.
+	removed := stripClientHeaders(msg.Header, true, true)
 	want := []string{"Reply-To (CR or NUL)", "Subject (CR or NUL)"}
 	if !slices.Equal(removed, want) {
 		t.Errorf("Removed: got %q, want %q", removed, want)

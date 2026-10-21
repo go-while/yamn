@@ -45,7 +45,8 @@ var maxMessageRead int64 = 2 * maxChunks * maxFragLength
 
 // readMessage reads the plaintext message to be sent from r (named name in
 // error messages), applies --to and --subject, and removes headers that
-// could identify the sender unless --keep-headers is given.
+// could identify the sender unless --keep-headers is given (see
+// stripClientHeaders).
 func readMessage(r io.Reader, name string) []byte {
 	limited := &io.LimitedReader{R: r, N: maxMessageRead + 1}
 	msg, err := mail.ReadMessage(limited)
@@ -74,12 +75,16 @@ func readMessage(r io.Reader, name string) []byte {
 		os.Exit(1)
 	}
 	if !flag.KeepHeaders {
-		if removed := stripClientHeaders(msg.Header); len(removed) > 0 {
+		removed := stripClientHeaders(msg.Header, flag.KeepFrom, flag.KeepReplyTo)
+		if len(removed) > 0 {
+			hint := "Use --keep-headers to send them"
+			if slices.Contains(removed, "From") || slices.Contains(removed, "Reply-To") {
+				hint += ", or --keep-from and --keep-reply-to for just those"
+			}
 			fmt.Fprintf(
 				clientOutput,
-				"Removed from the message, as it could identify you: %s. "+
-					"Use --keep-headers to send them.\n",
-				strings.Join(removed, ", "),
+				"Removed from the message, as it could identify you: %s. %s.\n",
+				strings.Join(removed, ", "), hint,
 			)
 		}
 	}
@@ -106,31 +111,30 @@ func hasRecipient(h mail.Header) bool {
 // message is encoded, and returns what it removed.  It keeps the headers an
 // exit passes on (see headerAllowed) plus Bcc, which the exit needs to find
 // the hidden recipients.  Date and Message-Id are removed: the exit sets its
-// own, and they can show the sender's time zone and host name.  From is kept
-// as a bare address, without the display name.  Headers with a CR or NUL in
-// them are removed too, as an exit refuses the message.
-func stripClientHeaders(h mail.Header) (removed []string) {
+// own, and they can show the sender's time zone and host name.  From and
+// Reply-To are removed unless keepFrom or keepReplyTo is set: a mail program
+// fills them with the sender's name and address, and the exit writes its own
+// From if there's none.  Headers with a CR or NUL in them are always removed,
+// as an exit refuses the message.
+func stripClientHeaders(h mail.Header, keepFrom, keepReplyTo bool) (removed []string) {
 	for k := badHeader(h); k != ""; k = badHeader(h) {
 		delete(h, k)
 		removed = append(removed, k+" (CR or NUL)")
 	}
 	extra := extraAllowedHeaders()
 	for k := range h {
-		keep := k == "Bcc" || (headerAllowed(k, extra) && k != "Date" && k != "Message-Id")
+		var keep bool
+		switch k {
+		case "From":
+			keep = keepFrom
+		case "Reply-To":
+			keep = keepReplyTo
+		default:
+			keep = k == "Bcc" || (headerAllowed(k, extra) && k != "Date" && k != "Message-Id")
+		}
 		if !keep {
 			delete(h, k)
 			removed = append(removed, k)
-		}
-	}
-	if from := h.Get("From"); from != "" {
-		addr, err := mail.ParseAddress(from)
-		switch {
-		case err != nil:
-			delete(h, "From")
-			removed = append(removed, "From (unreadable)")
-		case addr.Name != "":
-			h["From"] = []string{addr.Address}
-			removed = append(removed, "From display name")
 		}
 	}
 	slices.Sort(removed)
