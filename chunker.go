@@ -140,33 +140,31 @@ func (chunk *Chunk) Housekeep() (ret, del int) {
 }
 
 // Assemble takes all the file chunks, assembles them in order and stores the
-// result back into the pool.
-func (chunk *Chunk) Assemble(filename string, items []string) (err error) {
-	f, err := os.Create(filename)
-	if err != nil {
-		return
-	}
-	defer f.Close()
+// result back into the pool as a new outbound file, whose name it returns.
+// If a chunk can't be read or the result can't be written, nothing is
+// pooled and the chunks are kept.
+func (chunk *Chunk) Assemble(items []string) (filename string, err error) {
 	// Each chunk file starts with its own internal header.  Write one for the
 	// assembled message and strip them from the chunks, otherwise they end up
 	// in the middle of the delivered message.
-	writeInternalHeader(f)
-	var content []byte
+	content := [][]byte{internalHeader()}
 	for _, c := range items {
-		infile := path.Join(cfg.Files.Pooldir, c)
-		content, err = ioutil.ReadFile(infile)
+		b, err := os.ReadFile(path.Join(cfg.Files.Pooldir, c))
 		if err != nil {
-			log.Warnf("Chunk assembler says: %s", err)
-			continue
+			return "", fmt.Errorf("missing chunk: %w", err)
 		}
-		f.Write(stripInternalHeader(content))
-		err = os.Remove(infile)
-		if err != nil {
+		content = append(content, stripInternalHeader(b))
+	}
+	if filename, err = writePoolFile("m", content...); err != nil {
+		return
+	}
+	// The message is pooled, so the chunks aren't needed any more.
+	for _, c := range items {
+		if err := os.Remove(path.Join(cfg.Files.Pooldir, c)); err != nil {
 			log.Warnf("Assembler chunk delete failed: %s", err)
-			continue
 		}
 	}
-	return
+	return filename, nil
 }
 
 // AssembledSize returns the size of the message the chunk files in items
