@@ -42,6 +42,7 @@ take such a chain too, not the message's
 .TP
 .B "--debug"
 Print the configuration in use, with all defaults filled in, and exit.
+The SMTP password is shown as (hidden).
 .TP
 .B "--dir=\fIdirectory"
 Base directory for yamn's files: the default paths of the
@@ -59,16 +60,22 @@ option.
 .B "--keep-headers"
 In client mode, send the message's headers as they are.  Without it, yamn
 removes headers that could identify you before encrypting the message: anything
-an exit wouldn't pass on anyway, plus Date and Message-ID, and the name in
-From.  It reports what it removed.
+an exit wouldn't pass on anyway, plus Date and Message-ID, the name in
+From, and headers with a CR or NUL in them (an exit refuses those).  It
+reports what it removed.
 .TP
 .B "-l, --chain=\fIrem1,rem2,rem3,..."
 Use the defined chain to route the message through the Yamn network.  Random
 nodes can be selected with asterisks. E.g. --chain="*,*,*".
+A random node is never a remailer used within
+.B stats.distance
+hops of it, including the named ones.
 If multiple copies are specified, all copies must share a common exit remailer.
 .TP
 .B "-m, --mail"
-Operate in client mode and inject a plain-text message into the Yamn pool
+Operate in client mode and inject a plain-text message into the Yamn pool.
+A message is sent in chunks of 17910 bytes, at most 255 of them (about
+4.5 MB with its headers); a larger message is refused.
 .TP
 .B "-M, --remailer"
 Operate in server mode.  Normally used in combination with 
@@ -97,7 +104,9 @@ and
 .BR urls.mlist2 ,
 or from every pinger in
 .BR urls.pingers )
-and exit.
+and exit.  A download only replaces the current file if it reads as a keyring
+with at least one key valid now, or as statistics with at least one remailer.
+An https URL isn't followed to a plain http one.
 .TP
 .B "-s, --subject=\fIsubject"
 Specify a Subject header for the message.  If this isn't defined, the Subject
@@ -105,7 +114,12 @@ is expected to be defined within the message.
 .TP
 .B "-S, --send"
 Flush the outbound pool.  Useful for client mode and remailer testing but
-should not be used on an in-production remailer.
+should not be used on an in-production remailer.  Only one process sends from
+a pool at a time (it locks
+.IR pooldir /.lock);
+if another one, such as a remailer started with
+.BR --daemon ,
+is sending, nothing is flushed.
 .TP
 .B "--stdout"
 Write the encrypted mails to STDOUT instead of storing them in the Pool, so
@@ -137,6 +151,16 @@ Print the version and exit.  Versions of this fork are the upstream
 .RI +gw N ,
 e.g. 0.2.7+gw1.  Encrypted mails carry only the upstream version, so
 they don't tell which fork sent them.
+.SH EXIT STATUS
+In client mode
+.RB ( -m ),
+yamn exits with 0 when the whole message was pooled (or written with
+.BR --stdout ),
+and with 1 when it was refused: for example an unknown remailer or a chain
+that can't be built, no To, Cc or Bcc address, or more than two arguments.
+Every chunk and copy is encrypted before the first one is pooled, so after
+an error nothing of the message is sent.  A dummy message that can't be
+built only gives a warning.
 .SH CONFIGURATION
 yamn reads a YAML configuration file.  It uses the first one it finds of:
 .IP 1. 4
@@ -192,11 +216,26 @@ prints the configuration in effect.  A path in the
 section that starts with
 .I ~/
 is in your home directory.
+.PP
+yamn ignores a key in
+.I pubring.mix
+whose remailer name isn't made of lowercase letters and digits, or whose
+address isn't a single local@domain of at most 52 characters.  Keys that share
+a name but not the address, or the address but not the name, are ignored too.
 .SS Stale statistics
 Statistics older than
 .B stats.stale_hours
 (default 24) are still used to pick random remailers; yamn only warns about
 them.  With several pingers, see below.
+.SS Exit remailers
+An exit delivers a message to at most
+.B mail.max_recipients
+addresses (default 10; 0 means no limit), counting To, Cc and Bcc after the
+destination block list.  A message with more recipients is not delivered, so
+one anonymous message can't be fanned out to hundreds of addresses.  The limit
+is announced in the
+.B remailer-conf
+reply.
 .SS Several pingers
 By default the keyring and statistics come from a single pinger
 .RB ( urls.pubring
@@ -217,23 +256,35 @@ A key is only used if at least
 .B urls.key_quorum
 pingers (default 2) publish it for the same remailer.  So one wrong, stale or
 compromised pinger can neither add a key nor replace one.  If fewer pingers
-are working, all of them must agree.
+have a usable keyring (for example on a first run, when some can't be
+reached), nothing is merged and the current keyring is kept.  Set a lower
+.B urls.key_quorum
+to accept fewer;
+.B "key_quorum: 1"
+trusts any single pinger.
+.IP \(bu 2
+A key's version, capabilities and dates are those most of its pingers
+publish.  On a tie, the more cautious value is used: middleman rather than
+exit, the later valid-from and the earlier valid-until date.
 .IP \(bu 2
 A remailer name must belong to one address; if pingers disagree on that, the
 address published by more pingers is used.
 .IP \(bu 2
-Statistics are the median of the pingers whose
+A remailer's statistics are the median of the pingers whose
 .I mlist2.txt
 is at most
 .B stats.stale_hours
-old, taking the higher latency and lower uptime when there are two middle
-values.  The merged file carries the oldest Generated time used.  If every
-pinger's statistics are older than that, all of them are used, with a
-warning.
+old.  They must come from as many pingers as a key; if fewer fresh ones list
+the remailer, older ones fill in, newest first, and without enough of them the
+remailer gets no statistics (so it isn't chosen at random).  Statistics dated
+more than an hour in the future aren't used.  The merged file carries the
+oldest Generated time used.
+If every pinger's statistics are older than that, yamn warns.
 .PP
 Disagreements between pingers are logged (loglevel info), problems with a
 pinger as warnings.  A pinger that can't be reached keeps its last downloaded
-files.
+files.  Plain http URLs are warned about: anyone on the network path can
+change what is downloaded from them.
 .SH SEE ALSO
 .I ISSUES.md
 in the source tree for known issues and their status.
