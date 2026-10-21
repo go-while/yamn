@@ -787,7 +787,8 @@ not part of the repository yet and come with the fixes.
   and refuse redirects that downgrade to http.
 - **Found:** review 2, K-11 and M-11. Tests: `TestReviewCheckWeakerThanParser`,
   `TestReviewHTTPGetDowngradeRedirect`.
-- **Status:** open.
+- **Status:** fixed in `db79575` (branch `fix/40-download-checks`, #51).
+  Tests: `TestCheckLikeParser`, `TestHTTPGetDowngradeRedirect`.
 
 ### Y-41: Delivery failures: 5xx retried for 28 days, MX fallback
 
