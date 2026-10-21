@@ -55,8 +55,9 @@ option.
 .B "--keep-headers"
 In client mode, send the message's headers as they are.  Without it, yamn
 removes headers that could identify you before encrypting the message: anything
-an exit wouldn't pass on anyway, plus Date and Message-ID, and the name in
-From.  It reports what it removed.
+an exit wouldn't pass on anyway, plus Date and Message-ID, the name in
+From, and headers with a CR or NUL in them (an exit refuses those).  It
+reports what it removed.
 .TP
 .B "-l, --chain=\fIrem1,rem2,rem3,..."
 Use the defined chain to route the message through the Yamn network.  Random
@@ -103,7 +104,12 @@ is expected to be defined within the message.
 .TP
 .B "-S, --send"
 Flush the outbound pool.  Useful for client mode and remailer testing but
-should not be used on an in-production remailer.
+should not be used on an in-production remailer.  Only one process sends from
+a pool at a time (it locks
+.IR pooldir /.lock);
+if another one, such as a remailer started with
+.BR --daemon ,
+is sending, nothing is flushed.
 .TP
 .B "--stdout"
 Write the encrypted mails to STDOUT instead of storing them in the Pool, so
@@ -186,6 +192,21 @@ and
 are minimal starting points.
 .B "yamn --debug"
 prints the configuration in effect.
+.PP
+yamn ignores a key in
+.I pubring.mix
+whose remailer name isn't made of lowercase letters and digits, or whose
+address isn't a single local@domain of at most 52 characters.  Keys that share
+a name but not the address, or the address but not the name, are ignored too.
+.SS Exit remailers
+An exit delivers a message to at most
+.B mail.max_recipients
+addresses (default 10; 0 means no limit), counting To, Cc and Bcc after the
+destination block list.  A message with more recipients is not delivered, so
+one anonymous message can't be fanned out to hundreds of addresses.  The limit
+is announced in the
+.B remailer-conf
+reply.
 .SS Several pingers
 By default the keyring and statistics come from a single pinger
 .RB ( urls.pubring
