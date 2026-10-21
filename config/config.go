@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -406,16 +407,29 @@ func (f *Flags) ParseConfig() (*Config, error) {
 // paths are kept.  Without --dir, relative paths stay relative to the
 // current directory.
 func (c *Config) resolvePaths(dir string) {
-	if dir == "" {
-		return
-	}
 	for _, p := range []*string{
 		&c.Files.Pubkey, &c.Files.Pubring, &c.Files.Secring, &c.Files.Mlist2,
 		&c.Files.Adminkey, &c.Files.Help, &c.Files.Pooldir, &c.Files.Maildir,
 		&c.Files.IDlog, &c.Files.ChunkDB, &c.Files.Logfile, &c.Files.DestBlock,
 	} {
-		if *p != "" && !filepath.IsAbs(*p) {
+		// A leading "~/" is the home directory, as in a shell.
+		*p = expandHome(*p)
+		if dir != "" && *p != "" && !filepath.IsAbs(*p) {
 			*p = filepath.Join(dir, *p)
 		}
 	}
+}
+
+// expandHome replaces a leading "~/" (or a lone "~") in p with the home
+// directory.  "~user" isn't supported.  Without a home directory, p is
+// returned as it is.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, p[1:])
 }

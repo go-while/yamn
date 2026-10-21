@@ -472,13 +472,9 @@ func timedURLFetch(url, filename string, validate func([]byte) error) {
 func dummy() {
 	var err error
 	plainMsg := []byte("I hope Len approves")
-	// Make a single hop chain with a random node
-	var inChain []string
-	if flag.Chain == "" {
-		inChain = []string{"*", "*"}
-	} else {
-		inChain = strings.Split(flag.Chain, ",")
-	}
+	// A random two-hop chain.  Not --chain: the dummy shouldn't take the
+	// path of the real message.
+	inChain := []string{"*", "*"}
 	final := newSlotFinal()
 	// Override the default delivery method (255 = Dummy)
 	final.setDeliveryMethod(255)

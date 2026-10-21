@@ -968,7 +968,9 @@ not part of the repository yet and come with the fixes.
 - `linebreaker` with a line length of 0 would recurse forever (only 64 is
   used).
 - **Found:** review 2, K-17 and K-19.
-- **Status:** open.
+- **Status:** fixed in `f221517` (branch `fix/51-client-docs`, #58). Tests:
+  `TestDummyIgnoresChain`, `TestHomePaths`, `TestLineLengthBelowOne`,
+  `TestManPageSynopsis`.
 
 ### Y-52: Crypto notes (no action needed)
 
