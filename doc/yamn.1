@@ -29,7 +29,8 @@ config option
 (default: 2).
 .TP
 .B "--config=\fIfilename"
-Use this configuration file.  See
+Use this configuration file.  It must exist: yamn doesn't fall back to
+another one.  See
 .B CONFIGURATION
 for where yamn looks without this option.
 .TP
@@ -171,7 +172,7 @@ the file given with
 .IP 2. 4
 the file named by the
 .B YAMNCFG
-environment variable;
+environment variable (if it's set, the file must exist);
 .IP 3. 4
 .I yamn.yml
 in the
@@ -190,6 +191,16 @@ in the current directory is not read automatically (it could be planted by
 someone else); use
 .B "--config ./yamn.yml"
 for that.  Without any config file, yamn uses its built-in defaults.
+.PP
+Options yamn doesn't know, such as a misspelt one, are reported as warnings
+and ignored.  Values it can't use are errors, for example a negative
+.BR stats.distance ,
+.B stats.maxlat
+below
+.BR stats.minlat ,
+an uptime outside 0 to 100 or
+.B urls.key_quorum
+below 1.
 .PP
 A config file only needs the options that differ from the defaults.  Options
 are grouped in sections, for example:

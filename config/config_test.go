@@ -269,14 +269,14 @@ func TestResolvePathsCoversFiles(t *testing.T) {
 	c := new(Config)
 	v := reflect.ValueOf(&c.Files).Elem()
 	for i := 0; i < v.NumField(); i++ {
-		if v.Type().Field(i).Tag.Get("yaml") != "" {
+		if tag := v.Type().Field(i).Tag.Get("yaml"); tag != "" && tag != "-" {
 			v.Field(i).SetString("rel")
 		}
 	}
 	c.resolvePaths("/d")
 	for i := 0; i < v.NumField(); i++ {
 		f := v.Type().Field(i)
-		if f.Tag.Get("yaml") != "" && v.Field(i).String() != "/d/rel" {
+		if tag := f.Tag.Get("yaml"); tag != "" && tag != "-" && v.Field(i).String() != "/d/rel" {
 			t.Errorf("files.%s is not resolved against --dir", f.Tag.Get("yaml"))
 		}
 	}
