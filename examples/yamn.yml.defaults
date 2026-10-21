@@ -173,7 +173,11 @@ remailer:
     # max_age + 1; shorter values are raised to max_age + 2.
     id_expire: 16
     # Days a partly received multi-chunk message is kept
-    chunk_expire: 60
+    chunk_expire: 7
+    # Most chunks (up to 18 kB each) kept from partly received messages.
+    # While it's reached, only chunks that complete a message are kept; 0
+    # means no limit
+    chunk_limit: 1000
     # Reject packets older than this many days
     max_age: 14
     # Days a remailer key is valid, and how long it's kept after expiring
