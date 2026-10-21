@@ -127,7 +127,9 @@ mail:
     # From name and address on mail delivered by an exit
     outbound_name: Anonymous Remailer
     outbound_addy: remailer@domain.invalid
-    # Let senders choose their own From address
+    # Let senders choose their own From address. Without it, mail goes out
+    # from outbound_addy with the sender's name, or outbound_name if there's
+    # none or it has an "@" in it (it would look like an address).
     custom_from: false
     # Domain in the Message-ID of delivered mail, and the name yamn gives in
     # SMTP EHLO; empty means the domain of remailer.address

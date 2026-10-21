@@ -421,7 +421,9 @@ func parseFrom(h mail.Header) []string {
 		// AddressList).
 		return []string{from[0].String()}
 	}
-	if len(from[0].Name) == 0 {
+	// A name with an "@" would show as an address in most mail programs
+	// ("security@bank.example" <remailer@exit>), so it isn't used.
+	if len(from[0].Name) == 0 || strings.Contains(from[0].Name, "@") {
 		return defaultFrom
 	}
 	return []string{(&mail.Address{

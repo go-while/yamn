@@ -39,21 +39,33 @@ func TestFilterHeaders(t *testing.T) {
 	}
 }
 
-func TestParseFromQuotesName(t *testing.T) {
+// TestParseFromName checks the From an exit sets without custom_from: the
+// sender's name with the outbound address, quoted so it can't add an
+// address, and the outbound name instead of a name with an "@" in it, which
+// mail programs would show like an address.
+func TestParseFromName(t *testing.T) {
 	setupTestConfig(t)
 	cfg.Mail.CustomFrom = false
+	cfg.Mail.OutboundName = "Anonymous Remailer"
 	cfg.Mail.OutboundAddy = "remailer@exit.invalid"
-	h := mail.Header{"From": {`"Bank <security@bank.example>" <someone@example.invalid>`}}
-	from := parseFrom(h)[0]
-	addr, err := mail.ParseAddress(from)
-	if err != nil {
-		t.Fatalf("parseFrom produced an invalid address %q: %s", from, err)
-	}
-	if addr.Address != "remailer@exit.invalid" {
-		t.Errorf("From address: got %q, want the outbound address", addr.Address)
-	}
-	if addr.Name != "Bank <security@bank.example>" {
-		t.Errorf("From display name: got %q", addr.Name)
+	for from, wantName := range map[string]string{
+		`Bob <someone@example.invalid>`:                            "Bob",
+		`"Bob, the builder" <someone@example.invalid>`:             "Bob, the builder",
+		`"Bank <security@bank.example>" <someone@example.invalid>`: "Anonymous Remailer",
+		`"security@bank.example" <someone@example.invalid>`:        "Anonymous Remailer",
+		`someone@example.invalid`:                                  "Anonymous Remailer",
+	} {
+		got := parseFrom(mail.Header{"From": {from}})[0]
+		addr, err := mail.ParseAddress(got)
+		if err != nil {
+			t.Fatalf("From %q: parseFrom produced an invalid address %q: %s", from, got, err)
+		}
+		if addr.Address != "remailer@exit.invalid" {
+			t.Errorf("From %q: address %q, want the outbound address", from, addr.Address)
+		}
+		if addr.Name != wantName {
+			t.Errorf("From %q: name %q, want %q", from, addr.Name, wantName)
+		}
 	}
 }
 
