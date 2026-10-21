@@ -403,7 +403,9 @@ not part of the repository yet and come with the fixes.
   - Do the same in `stripClientHeaders`.
 - **Found:** review 2, M-2. Tests: `TestReviewBareCRReachesWire`,
   `TestReviewBareCRHeaderOnWire`. No smuggling payload was written.
-- **Status:** open.
+- **Status:** fixed in `f683da2` (branch `fix/25-bare-cr`, #36). Tests:
+  `TestMailPoolFileBareCRBody`, `TestMailPoolFileBareCRHeader`,
+  `TestStripClientHeadersBareCR`.
 
 ### Y-26: Pipe mode ignores the block list and drops Bcc
 

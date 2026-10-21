@@ -55,8 +55,9 @@ option.
 .B "--keep-headers"
 In client mode, send the message's headers as they are.  Without it, yamn
 removes headers that could identify you before encrypting the message: anything
-an exit wouldn't pass on anyway, plus Date and Message-ID, and the name in
-From.  It reports what it removed.
+an exit wouldn't pass on anyway, plus Date and Message-ID, the name in
+From, and headers with a CR or NUL in them (an exit refuses those).  It
+reports what it removed.
 .TP
 .B "-l, --chain=\fIrem1,rem2,rem3,..."
 Use the defined chain to route the message through the Yamn network.  Random
