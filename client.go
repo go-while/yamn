@@ -205,9 +205,10 @@ func mixprep() {
 			}
 			// Retain the entry hop.  We need to mail the message to it.
 			sendTo := chain[0]
-			// Report the chain if we're running as a client.
+			// Report the chain if we're running as a client, at debug
+			// level only: a log file shouldn't show who was mailed how.
 			if flag.Client {
-				log.Infof("Chain: %s\n", strings.Join(chain, ","))
+				log.Debugf("Chain: %s", strings.Join(chain, ","))
 			}
 			yamnMsg := encodeMsg(
 				plain[firstByte:lastByte],

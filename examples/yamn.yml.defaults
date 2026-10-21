@@ -47,7 +47,8 @@ files:
     idlog: idlog
     # Database of partly received multi-chunk messages
     chunkdb: chunkdb
-    # Log file, used with general.logtofile
+    # Log file, used with general.logtofile. A new one is created readable by
+    # its owner only (0600).
     logfile: yamn.log
     # Destination block list: addresses that must not receive mail from this
     # exit. One address or "@domain" per line, "#" starts a comment. Read for
