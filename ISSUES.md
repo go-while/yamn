@@ -488,7 +488,9 @@ not part of the repository yet and come with the fixes.
   - Treat a future mtime as stale.
 - **Found:** review 2, K-1. Tests: `TestReviewPathEdgeCases`,
   `TestReviewFutureMtimeNeverFetched`.
-- **Status:** open.
+- **Status:** fixed in `190c4df` (branch `fix/29-data-paths`, #59). Tests:
+  `TestBaseDir`, `TestBaseDirAbsolutePaths`, `TestFetchFutureMtime`,
+  `TestRelativePathsCoversFiles`.
 
 ### Y-30: `distance` is ignored for hops named in --chain
 
