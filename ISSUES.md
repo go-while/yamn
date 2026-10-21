@@ -675,7 +675,9 @@ not part of the repository yet and come with the fixes.
   - Don't extend the expiry.
 - **Found:** review 2, C-4. Tests: `TestReviewC4DuplicateChunkOrphansFile`,
   `TestReviewC4PartialChunksUnbounded`.
-- **Status:** open.
+- **Status:** fixed in `357ca71` (branch `fix/34-chunk-limits`, #42). Tests:
+  `TestChunkExpiryNotExtended`, `TestDuplicateChunkKeepsFirst`,
+  `TestPartialChunkLimit`.
 
 ### Y-35: A running remailer keeps keys that left the keyring
 
