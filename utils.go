@@ -76,23 +76,26 @@ func readDir(path, prefix string) (files []string, err error) {
 func messageID() (datestr string) {
 	dateComponent := time.Now().Format("20060102.150405")
 	randomComponent := hex.EncodeToString(crandom.Randbytes(4))
-	var domainComponent string
-	if validMessageDomain(cfg.Mail.MessageDomain) {
-		domainComponent = cfg.Mail.MessageDomain
-	} else if strings.Contains(cfg.Remailer.Address, "@") {
-		domainComponent = strings.SplitN(
-			cfg.Remailer.Address, "@", 2,
-		)[1]
-	} else {
-		domainComponent = "yamn.invalid"
-	}
 	datestr = fmt.Sprintf(
 		"<%s.%s@%s>",
 		dateComponent,
 		randomComponent,
-		domainComponent,
+		mailDomain(),
 	)
 	return
+}
+
+// mailDomain returns the domain yamn names itself by in Message-IDs and in
+// the SMTP EHLO: mail.message_domain if set, else the domain of
+// remailer.address.
+func mailDomain() string {
+	if validMessageDomain(cfg.Mail.MessageDomain) {
+		return cfg.Mail.MessageDomain
+	}
+	if _, d, ok := strings.Cut(cfg.Remailer.Address, "@"); ok && validMessageDomain(d) {
+		return d
+	}
+	return "yamn.invalid"
 }
 
 // validMessageDomain reports whether d can be used as the domain part of a

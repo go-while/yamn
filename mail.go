@@ -728,6 +728,12 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		)
 		return
 	}
+	// net/smtp would say "EHLO localhost", which many servers count
+	// against the sender.
+	if err = client.Hello(mailDomain()); err != nil {
+		log.Warnf("SMTP EHLO Error: Server=%s, Error=%s", serverAddr, err)
+		return
+	}
 	// Test if the remote MTA supports STARTTLS.  require_tls implies
 	// usetls: without STARTTLS, every delivery would fail.
 	useTLS := cfg.Mail.UseTLS || cfg.Mail.RequireTLS

@@ -128,8 +128,8 @@ mail:
     outbound_addy: remailer@domain.invalid
     # Let senders choose their own From address
     custom_from: false
-    # Domain in the Message-ID of delivered mail; empty means the domain of
-    # remailer.address
+    # Domain in the Message-ID of delivered mail, and the name yamn gives in
+    # SMTP EHLO; empty means the domain of remailer.address
     message_domain: ""
     # Headers an exit passes through besides its built-in list (To, Cc,
     # Subject, Reply-To, In-Reply-To, References, Newsgroups, Followup-To,
