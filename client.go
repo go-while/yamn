@@ -34,11 +34,21 @@ func readMessageFile(filename string) []byte {
 	return readMessage(f, filename)
 }
 
+// maxChunks is the most chunks a message can have: the packet stores the
+// number of chunks in a single byte.
+const maxChunks = 255
+
+// maxMessageRead is the most bytes readMessage reads.  It's well above the
+// largest message that fits into maxChunks chunks, as headers can still be
+// removed, and only keeps yamn from reading an endless input.
+var maxMessageRead int64 = 2 * maxChunks * maxFragLength
+
 // readMessage reads the plaintext message to be sent from r (named name in
 // error messages), applies --to and --subject, and removes headers that
 // could identify the sender unless --keep-headers is given.
 func readMessage(r io.Reader, name string) []byte {
-	msg, err := mail.ReadMessage(r)
+	limited := &io.LimitedReader{R: r, N: maxMessageRead + 1}
+	msg, err := mail.ReadMessage(limited)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: Malformed mail message\n", name)
 		os.Exit(1)
@@ -67,7 +77,12 @@ func readMessage(r io.Reader, name string) []byte {
 			)
 		}
 	}
-	return assemble(*msg)
+	plain := assemble(*msg)
+	if limited.N <= 0 {
+		fmt.Fprintf(os.Stderr, "%s: Message larger than %d bytes\n", name, maxMessageRead)
+		os.Exit(1)
+	}
+	return plain
 }
 
 // stripClientHeaders removes headers that could identify the sender before a
@@ -162,6 +177,16 @@ func mixprep() {
 	copies := numCopies()
 	var cnum int // Chunk number
 	numc := int(math.Ceil(float64(plainLen) / float64(maxFragLength)))
+	// Checked before anything is pooled: a part of the message must not be
+	// sent.
+	if numc > maxChunks {
+		fmt.Fprintf(
+			os.Stderr,
+			"Message too large: %d bytes need %d chunks, at most %d (%d bytes) are possible\n",
+			plainLen, numc, maxChunks, maxChunks*maxFragLength,
+		)
+		os.Exit(1)
+	}
 	final.setNumChunks(numc)
 	// The exit is chosen once for the whole message: every chunk and copy
 	// must reach the same exit remailer for the chunks to be reassembled.
