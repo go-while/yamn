@@ -870,7 +870,8 @@ not part of the repository yet and come with the fixes.
   - Validate the values on load.
 - **Found:** review 2, K-7, K-8 and K-14. Tests: `TestReviewMissingConfigFallsBack`,
   `TestReviewUnknownKeys`, `TestReviewNegativeDistance`.
-- **Status:** open.
+- **Status:** fixed in `6182aa3` (branch `fix/45-config-checks`, #60). Tests:
+  `TestMissingExplicitConfig`, `TestUnknownOptions`, `TestValidate`.
 
 ### Y-46: Client: exit status and argument checks
 
