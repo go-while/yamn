@@ -654,7 +654,9 @@ not part of the repository yet and come with the fixes.
 - **Found:** review 2, M-7, C-3 and M-14. Tests:
   `TestReviewPartialAssembledFileVisible`, `TestReviewC3HeaderOnlyFileDeleted`,
   `TestReviewPartialPoolFileDeleted`.
-- **Status:** open.
+- **Status:** fixed in `18fa9b6` (branch `fix/33-atomic-pool`, #41). Tests:
+  `TestAssembleMissingChunk`, `TestForget`, `TestPoolFileModes`,
+  `TestPoolReaderSeesNoPartialFile`, `TestProcessMailKeepsMailOnPoolError`.
 
 ### Y-34: Partial chunks have no storage limit
 

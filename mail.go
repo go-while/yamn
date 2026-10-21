@@ -445,20 +445,13 @@ func mailBytes(payload []byte, sendTo []string) (err error) {
 	// Test if the message is destined for the local remailer
 	log.Tracef("Message recipients are: %s", strings.Join(sendTo, ","))
 	if cfg.Mail.Outfile {
-		var f *os.File
-		filename := randPoolFilename("outfile-")
-		log.Tracef("Writing output to %s", filename)
-		f, err = os.Create(filename)
+		var filename string
+		filename, err = writePoolFile("outfile-", payload)
 		if err != nil {
-			log.Warnf("Pool file creation failed: %s\n", err)
+			log.Warnf("Outfile write failed: %s", err)
 			return
 		}
-		defer f.Close()
-		_, err = f.WriteString(string(payload))
-		if err != nil {
-			log.Warnf("Outfile write failed: %s\n", err)
-			return
-		}
+		log.Tracef("Wrote output to %s", filename)
 	} else if cfg.Mail.Pipe != "" {
 		err = execSend(payload, cfg.Mail.Pipe, sendTo)
 		if err != nil {

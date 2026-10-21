@@ -5,7 +5,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/mail"
 	"os"
 	"path"
@@ -232,6 +231,7 @@ func chunkClean() {
 			cexp,
 		)
 	}
+	cleanPoolTemp()
 	fret, fdel := ChunkDb.Housekeep()
 	if fdel > 0 {
 		log.Infof(
@@ -468,6 +468,13 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 		err = errDuplicatePacket
 		return
 	}
+	defer func() {
+		// A local write failure isn't the packet's fault.  Forget its ID,
+		// so the copy that's kept can be processed again.
+		if errors.Is(err, errPoolWrite) {
+			IDDb.Forget(slotData.getPacketID())
+		}
+	}()
 	if slotData.getPacketType() == 0 {
 		d.shiftHeaders()
 		// Decode Intermediate
@@ -483,13 +490,7 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 			log.Info(
 				"Message loops back to us.",
 				"Storing in pool instead of sending it.")
-			outfileName := randPoolFilename("i")
-			err = ioutil.WriteFile(
-				outfileName,
-				d.getPayload(),
-				0600,
-			)
-			if err != nil {
+			if _, err = writePoolFile("i", d.getPayload()); err != nil {
 				log.Warnf("Failed to write to pool: %s", err)
 				return
 			}
@@ -538,7 +539,7 @@ func decodeV2(d *decMessage, slotDataBytes []byte) (err error) {
 				if final.numChunks == 1 {
 					// Need to randhop as we're not an exit
 					// remailer
-					randhop(plain)
+					err = randhop(plain)
 				} else {
 					log.Warn(
 						"Randhopping doesn't support " +
@@ -577,7 +578,9 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 			return
 		}
 		// If this is a single chunk message, pool it and get out.
-		writePlainToPool(plain, "m")
+		if _, err = writePlainToPool(plain, "m"); err != nil {
+			return
+		}
 		stats.outPlain.Add(1)
 		return
 	}
@@ -602,7 +605,10 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 		return
 	}
 	// We're an exit and this is a multi-chunk message
-	chunkFilename := writePlainToPool(plain, "p")
+	chunkFilename, err := writePlainToPool(plain, "p")
+	if err != nil {
+		return
+	}
 	log.Tracef(
 		"Pooled partial chunk. MsgID=%x, Num=%d, "+
 			"Parts=%d, Filename=%s",
@@ -635,17 +641,17 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 			err = fmt.Errorf("assembled message of %d bytes exceeds max_size of %d kB", size, cfg.Remailer.MaxSize)
 			return
 		}
-		newPoolFile := randPoolFilename("m")
-		log.Tracef(
-			"Assembling chunked message into %s",
-			newPoolFile,
-		)
-		err = ChunkDb.Assemble(newPoolFile, chunks)
+		var newPoolFile string
+		newPoolFile, err = ChunkDb.Assemble(chunks)
 		if err != nil {
-			log.Warnf("Chunk assembly failed: %s", err)
-			// Don't return here or the bad chunk will remain in
-			// the DB.
+			// Keep the record and its chunks.  After a write error
+			// the packet is processed again; otherwise they expire
+			// after chunk_expire days.
+			ChunkDb.Insert(final.getMessageID(), chunks)
+			err = fmt.Errorf("chunk assembly failed: %w", err)
+			return
 		}
+		log.Tracef("Assembled chunked message into %s", newPoolFile)
 		// Now the message is assembled into the Pool, the DB record
 		// can be deleted
 		ChunkDb.Delete(final.getMessageID())
@@ -658,21 +664,21 @@ func smtpMethod(plain []byte, final *slotFinal) (err error) {
 	return
 }
 
-// randhop is a simplified client function that does single-hop encodings
-func randhop(plainMsg []byte) {
-	var err error
+// randhop is a simplified client function that does single-hop encodings.
+// Only a failure to pool the result is returned; other problems drop the
+// message.
+func randhop(plainMsg []byte) error {
 	if len(plainMsg) == 0 {
 		log.Info("Zero-byte message during randhop, ignoring it.")
-		return
+		return nil
 	}
 	// Make a single hop chain with a random node
 	inChain := []string{"*"}
 	final := newSlotFinal()
-	var chain []string
-	chain, err = makeChain(inChain)
+	chain, err := makeChain(inChain)
 	if err != nil {
 		log.Warn(err)
-		return
+		return nil
 	}
 	sendTo := chain[0]
 	if len(chain) != 1 {
@@ -682,10 +688,10 @@ func randhop(plainMsg []byte) {
 	log.Tracef("Performing a random hop to Exit Remailer: %s.", chain[0])
 	yamnMsg := encodeMsg(plainMsg, chain, *final)
 	if err = writeMessageToPool(sendTo, yamnMsg); err != nil {
-		log.Warn(err)
-		return
+		return err
 	}
 	stats.outRandhop.Add(1)
+	return nil
 }
 
 // remailerFoo responds to requests for remailer-* info
