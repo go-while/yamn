@@ -72,7 +72,8 @@ urls:
     # yamn.yml.client for an example.
     pingers: []
     # How many pingers must publish a key, or stats for a remailer, before
-    # they're used. With fewer working pingers, all of them must agree.
+    # they're used. With fewer usable keyrings, the current keyring is kept;
+    # 1 trusts any one pinger.
     key_quorum: 2
 
 # How mail is sent. Clients and remailers both need this to work.

@@ -773,7 +773,9 @@ not part of the repository yet and come with the fixes.
   - Decide ties per field, conservatively: `M` if any source has it, the
     earliest `until`.
 - **Found:** review 2, K-5 and K-6. Test: `TestReviewHeaderTieFutureStats`.
-- **Status:** open.
+- **Status:** fixed in `e03aacd` (branch `fix/39-merge-quorum`, #53). Tests:
+  `TestMergeHeaderTie`, `TestMergeQuorumNotLowered`,
+  `TestRefreshKeyringPlainHTTPWarning`.
 
 ### Y-40: Downloads: weaker checks than the parsers, https→http redirects
 

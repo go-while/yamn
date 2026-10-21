@@ -227,7 +227,16 @@ A key is only used if at least
 .B urls.key_quorum
 pingers (default 2) publish it for the same remailer.  So one wrong, stale or
 compromised pinger can neither add a key nor replace one.  If fewer pingers
-are working, all of them must agree.
+have a usable keyring (for example on a first run, when some can't be
+reached), nothing is merged and the current keyring is kept.  Set a lower
+.B urls.key_quorum
+to accept fewer;
+.B "key_quorum: 1"
+trusts any single pinger.
+.IP \(bu 2
+A key's version, capabilities and dates are those most of its pingers
+publish.  On a tie, the more cautious value is used: middleman rather than
+exit, the later valid-from and the earlier valid-until date.
 .IP \(bu 2
 A remailer name must belong to one address; if pingers disagree on that, the
 address published by more pingers is used.
@@ -244,7 +253,8 @@ oldest Generated time used.
 .PP
 Disagreements between pingers are logged (loglevel info), problems with a
 pinger as warnings.  A pinger that can't be reached keeps its last downloaded
-files.
+files.  Plain http URLs are warned about: anyone on the network path can
+change what is downloaded from them.
 .SH SEE ALSO
 .I ISSUES.md
 in the source tree for known issues and their status.
