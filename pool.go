@@ -240,8 +240,14 @@ func poolDelete(filename string) {
 // processMail reads the Remailer's Maildir and processes the content
 func processMail(secret *keymgr.Secring) (err error) {
 	dir := maildir.Dir(cfg.Files.Maildir)
-	// Get a list of Maildir keys from the directory
-	keys, err := dir.Unseen()
+	// Move new mail to cur, then read everything in cur.  If Unseen fails
+	// part way, the messages it already moved are still in cur; they'd
+	// never be read if only its result were used.  Processed mail is
+	// deleted or moved to .rejected, so cur holds nothing else.
+	if _, err = dir.Unseen(); err != nil {
+		log.Warnf("Reading %s/new: %s", cfg.Files.Maildir, err)
+	}
+	keys, err := dir.Keys()
 	if err != nil {
 		return
 	}
