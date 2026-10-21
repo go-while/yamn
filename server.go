@@ -251,6 +251,15 @@ func nagOperator() {
 			cfg.Mail.MessageDomain,
 		)
 	}
+	if pipeReadsHeaders(cfg.Mail.Pipe) {
+		log.Warnf(
+			"mail.pipe %q reads the recipients from the headers (-t), "+
+				"so yamn can't pass them: the block list doesn't apply "+
+				"and Bcc recipients get nothing. Remove the -t; yamn "+
+				"then passes the recipients as arguments.",
+			cfg.Mail.Pipe,
+		)
+	}
 	// Complain about excessively small loop values.
 	if cfg.Pool.Loop < 60 {
 		log.Warnf(
@@ -689,6 +698,10 @@ func remailerFoo(subject, from string) (err error) {
 		return
 	}
 	sender := fromAddr.Address
+	if !validRecipient(sender) {
+		err = errors.New("ignoring remailer-* request from an address that can't be replied to safely")
+		return
+	}
 	// The From header can be forged, so reply at most once a day per address.
 	if !fooReplies.allowed(sender) {
 		err = fmt.Errorf("already replied to %s today, ignoring %s", sender, subject)

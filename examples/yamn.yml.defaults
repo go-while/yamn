@@ -79,8 +79,11 @@ mail:
     # Send through the configured relay using Go's SMTP client (smtp_relay,
     # smtp_port, username, password), never directly to recipients' MX.
     sendmail: false
-    # Pipe mail to this command instead, e.g. "/usr/sbin/sendmail -t".
-    # Overrides sendmail and the built-in SMTP client.
+    # Pipe mail to this command instead, e.g. "/usr/sbin/sendmail -i".
+    # Overrides sendmail and the built-in SMTP client. The recipients are
+    # added as arguments after "--". With -t (which upstream yamn needs),
+    # no recipients are passed and the command takes them from the headers;
+    # the block list and Bcc then don't work.
     pipe: ""
     # Write outbound mail to files in the pool instead of sending it (testing).
     # Overrides all other delivery options.
