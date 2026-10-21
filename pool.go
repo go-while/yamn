@@ -33,14 +33,30 @@ func serverPoolOutboundSend() {
 	}
 	sleepFor := time.Duration(cfg.Pool.Loop) * time.Second
 	for {
-		// Read dynamic mix of outbound files from the Pool
-		// filenames = dynamicMix()
-		// Read binomialMix of outbound files from the Pool
-		filenames := binomialMix()
-		for _, filename := range filenames {
-			emailPoolFile(filename)
-		}
+		sendPoolBatch()
 		time.Sleep(sleepFor)
+	}
+}
+
+// errPoolLocked is returned by lockPool when another process is sending
+// from the pool.
+var errPoolLocked = errors.New("another yamn process is sending from the pool")
+
+// sendPoolBatch sends one binomial mix batch from the pool, unless another
+// process holds the pool lock.
+func sendPoolBatch() {
+	unlock, err := lockPool()
+	if err != nil {
+		log.Infof("Skipping this pool run: %s", err)
+		return
+	}
+	defer unlock()
+	// Read dynamic mix of outbound files from the Pool
+	// filenames = dynamicMix()
+	// Read binomialMix of outbound files from the Pool
+	filenames := binomialMix()
+	for _, filename := range filenames {
+		emailPoolFile(filename)
 	}
 }
 
@@ -56,6 +72,12 @@ func poolOutboundSend() {
 		err = errors.New("cannot flush pool when running as a daemon")
 		panic(err)
 	}
+	unlock, err := lockPool()
+	if err != nil {
+		log.Warnf("Not flushing the pool: %s", err)
+		return
+	}
+	defer unlock()
 	var filenames []string
 	// Read all the pool files
 	filenames, err = readDir(cfg.Files.Pooldir, "m")

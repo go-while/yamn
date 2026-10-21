@@ -101,7 +101,12 @@ is expected to be defined within the message.
 .TP
 .B "-S, --send"
 Flush the outbound pool.  Useful for client mode and remailer testing but
-should not be used on an in-production remailer.
+should not be used on an in-production remailer.  Only one process sends from
+a pool at a time (it locks
+.IR pooldir /.lock);
+if another one, such as a remailer started with
+.BR --daemon ,
+is sending, nothing is flushed.
 .TP
 .B "--stdout"
 Write the encrypted mails to STDOUT instead of storing them in the Pool, so
