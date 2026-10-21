@@ -20,7 +20,11 @@ Copy the yamn binary (yamn.exe on Windows) to the above dir
 Create yamn.yml in that dir with the options you want to change, starting
 from examples/yamn.yml.client or examples/yamn.yml.remailer.
 examples/yamn.yml.defaults lists every option with its default.
-Run yamn with --dir pointing at that dir, or with --config.
+Run yamn with --dir pointing at that dir, or with --config <dir>/yamn.yml.
+Relative paths (the default file names included) are relative to --dir, or
+without it to the directory of the --config or $YAMNCFG file.  Otherwise
+(~/yamn.yml, /etc/yamn.yml or no config file) they are relative to the
+current directory, and yamn warns about it.
 yamn --debug prints the configuration in effect.
 
 Examples:-

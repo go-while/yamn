@@ -1,12 +1,15 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -20,15 +23,22 @@ type Pinger struct {
 }
 
 type Config struct {
-	General struct {
+	// BaseDir is the directory relative paths of the files section are
+	// resolved against (see setBaseDir).  Empty means the current
+	// directory.
+	BaseDir string `yaml:"-"`
+	// cwdFallback is set when the files are read from the current
+	// directory instead of the config file's (see setBaseDir).
+	cwdFallback bool
+	General     struct {
 		Loglevel     string `yaml:"loglevel"`
 		LogToFile    bool   `yaml:"logtofile"`
 		LogToJournal bool   `yaml:"logtojournal"`
 	} `yaml:"general"`
 	Files struct {
-		// Config is a special variable that returns the name of the active config file.
-		// If it's set in the config file, it will be ignored.
-		Config   string
+		// Config is the name of the config file in use.  It can't be set
+		// in the config file.
+		Config   string `yaml:"-"`
 		Pubring  string `yaml:"pubring"`
 		Mlist2   string `yaml:"mlist2"`
 		Pubkey   string `yaml:"pubkey"`
@@ -73,6 +83,8 @@ type Config struct {
 		MessageDomain string `yaml:"message_domain"`
 		// Extra headers an exit passes through, besides the built-in list
 		AllowHeaders []string `yaml:"allow_headers"`
+		// Most recipients an exit mails one message to; 0 = no limit
+		MaxRecipients int `yaml:"max_recipients"`
 	} `yaml:"mail"`
 	Stats struct {
 		Minlat     int     `yaml:"minlat"`
@@ -100,11 +112,15 @@ type Config struct {
 		MaxSize     int    `yaml:"max_size"`
 		IDexp       int    `yaml:"id_expire"`
 		ChunkExpire int    `yaml:"chunk_expire"`
+		ChunkLimit  int    `yaml:"chunk_limit"`
 		MaxAge      int    `yaml:"max_age"`
 		Keylife     int    `yaml:"key_life"`
 		Keygrace    int    `yaml:"key_grace"`
 		Daemon      bool   `yaml:"daemon"`
 	} `yaml:"remailer"`
+	// Warnings about the config file, such as unknown options, to be
+	// logged once logging is set up.
+	Warnings []string `yaml:"-"`
 }
 
 type Flags struct {
@@ -143,7 +159,7 @@ func GetCfg() (*Flags, *Config) {
 	c, err := f.ParseConfig()
 	if err != nil {
 		// No logging is defined at this point so log the error to stderr
-		fmt.Fprintf(os.Stderr, "Unable to parse config file: %v", err)
+		fmt.Fprintf(os.Stderr, "Unable to parse config file: %v\n", err)
 		os.Exit(1)
 	}
 	return f, c
@@ -162,8 +178,14 @@ func (c *Config) WriteConfig(filename string) error {
 	return nil
 }
 
+// Debug returns the config as YAML for --debug.  The SMTP password is
+// replaced by "(hidden)", so the output can be shared.
 func (c *Config) Debug() ([]byte, error) {
-	data, err := yaml.Marshal(c)
+	shown := *c
+	if shown.Mail.Password != "" {
+		shown.Mail.Password = "(hidden)"
+	}
+	data, err := yaml.Marshal(&shown)
 	if err != nil {
 		return nil, err
 	}
@@ -242,12 +264,18 @@ func (f *Flags) findConfig() (string, error) {
 		_, err := os.Stat(name)
 		return name != "" && err == nil
 	}
-	// if a --config flag was passed, try that as the highest priority
-	if exists(f.Config) {
+	// A file given with --config or $YAMNCFG must exist: falling back to
+	// another one would silently use other settings.
+	if f.Config != "" {
+		if !exists(f.Config) {
+			return "", fmt.Errorf("--config %s: no such file", f.Config)
+		}
 		return f.Config, nil
 	}
-	// Does the environment variable YAMNCFG point to a valid file?
-	if env := os.Getenv("YAMNCFG"); exists(env) {
+	if env := os.Getenv("YAMNCFG"); env != "" {
+		if !exists(env) {
+			return "", fmt.Errorf("YAMNCFG=%s: no such file", env)
+		}
 		return env, nil
 	}
 	// Is there a yamn.yml file in the --dir directory?  Only if --dir was
@@ -291,6 +319,102 @@ func IgnoredLocalConfig(used string) (string, bool) {
 	return local, true
 }
 
+// setBaseDir sets BaseDir, the directory relative paths of the files
+// section are read from:
+//   - --dir, if given;
+//   - else the directory of the config file, if it was given with --config
+//     or $YAMNCFG;
+//   - else the current directory (an empty BaseDir), as before.
+//
+// Setups that run yamn from its directory with a config file elsewhere
+// keep working: if the config file's directory has none of yamn's files
+// and the current directory has, the current directory is used, with a
+// warning (see PathWarnings).
+func (c *Config) setBaseDir(f *Flags, cfgFile string) {
+	if f.Dir != "" {
+		c.BaseDir = f.Dir
+		return
+	}
+	if cfgFile == "" || (cfgFile != f.Config && cfgFile != os.Getenv("YAMNCFG")) {
+		return
+	}
+	dir := filepath.Dir(cfgFile)
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	cwd, err := os.Getwd()
+	if err == nil && cwd != dir && !c.hasDataFiles(dir) && c.hasDataFiles(cwd) {
+		c.cwdFallback = true
+		return
+	}
+	c.BaseDir = dir
+}
+
+// hasDataFiles reports whether dir holds one of the files a yamn
+// directory has after its first run: the keyring, the secret keyring or
+// the pool.  Only relative paths are looked for.
+func (c *Config) hasDataFiles(dir string) bool {
+	for _, p := range []string{c.Files.Pubring, c.Files.Secring, c.Files.Pooldir} {
+		if p == "" || filepath.IsAbs(p) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// relativePaths returns the paths of the files section that are still
+// relative, i.e. relative to the current directory.
+func (c *Config) relativePaths() (rel []string) {
+	for _, p := range []string{
+		c.Files.Pubring, c.Files.Mlist2, c.Files.Pubkey, c.Files.Secring,
+		c.Files.Adminkey, c.Files.Help, c.Files.Pooldir, c.Files.Maildir,
+		c.Files.IDlog, c.Files.ChunkDB, c.Files.Logfile, c.Files.DestBlock,
+	} {
+		if p != "" && !filepath.IsAbs(p) {
+			rel = append(rel, p)
+		}
+	}
+	return
+}
+
+// PathWarnings returns warnings about files read from the current
+// directory, where someone else could have put a pubring.mix or similar.
+func (c *Config) PathWarnings() (warnings []string) {
+	if c.BaseDir != "" {
+		return
+	}
+	rel := c.relativePaths()
+	if len(rel) == 0 {
+		return
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+	if c.cwdFallback {
+		warnings = append(warnings, fmt.Sprintf(
+			"Reading yamn's files from the current directory %s, not from the "+
+				"config file's directory %s, which has none of them. Pass "+
+				"--dir to say where they are.",
+			cwd, filepath.Dir(c.Files.Config),
+		))
+		return
+	}
+	if len(rel) > 3 {
+		rel = append(rel[:3], "...")
+	}
+	warnings = append(warnings, fmt.Sprintf(
+		"No --dir given: relative paths (%s) are read from the current "+
+			"directory %s. Pass --dir, or set absolute paths in the files "+
+			"section.",
+		strings.Join(rel, ", "), cwd,
+	))
+	return
+}
+
 // newConfig returns a new instance of Config with some predefined defaults
 func (f *Flags) newConfig() *Config {
 	c := new(Config)
@@ -298,8 +422,8 @@ func (f *Flags) newConfig() *Config {
 	c.General.Loglevel = "warn"
 	c.General.LogToFile = false    // By default, log to stdout/stderr
 	c.General.LogToJournal = false // Don't log to journal by default
-	// Files are named relative to the --dir directory; ParseConfig adds it
-	// (see resolvePaths).
+	// Files are named relative to BaseDir; ParseConfig adds it (see
+	// setBaseDir and resolvePaths).
 	c.Files.Pubkey = "key.txt"
 	c.Files.Pubring = "pubring.mix"
 	c.Files.Secring = "secring.mix"
@@ -331,6 +455,9 @@ func (f *Flags) newConfig() *Config {
 	c.Mail.OutboundAddy = "remailer@domain.invalid"
 	c.Mail.CustomFrom = false
 	c.Mail.MessageDomain = ""
+	// Enough for personal mail, but one message can't be fanned out to
+	// hundreds of addresses.
+	c.Mail.MaxRecipients = 10
 	c.Stats.Minrel = 98.0
 	c.Stats.Relfinal = 99.0
 	c.Stats.Minlat = 2
@@ -352,7 +479,12 @@ func (f *Flags) newConfig() *Config {
 	// Keep packet IDs longer than packets are accepted (max_age), so a
 	// packet can't be replayed after its ID expires.
 	c.Remailer.IDexp = 16
-	c.Remailer.ChunkExpire = 60
+	// The chunks of a message are sent together and arrive within hours.
+	// Mixmaster keeps partial messages for about a week too.
+	c.Remailer.ChunkExpire = 7
+	// At most this many partial chunk files, up to 17910 bytes each (about
+	// 18 MB in all).
+	c.Remailer.ChunkLimit = 1000
 	// Discard messages if packet timestamp exceeds this age in days
 	c.Remailer.MaxAge = 14
 	c.Remailer.Keylife = 14
@@ -367,6 +499,9 @@ func (f *Flags) ParseConfig() (*Config, error) {
 	c := f.newConfig()
 	// Try (really hard) to locate a yamn config file
 	cfgFile, err := f.findConfig()
+	if err != nil && err != os.ErrNotExist {
+		return nil, err
+	}
 	if err == nil {
 		// Useful for informing the user what config file is being read
 		c.Files.Config = cfgFile
@@ -379,26 +514,84 @@ func (f *Flags) ParseConfig() (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
+		c.Warnings = append(c.Warnings, unknownOptions(cfgFile, yamlBytes)...)
+		if err := c.validate(); err != nil {
+			return nil, fmt.Errorf("%s: %w", cfgFile, err)
+		}
 	}
-	c.resolvePaths(f.Dir)
+	c.setBaseDir(f, cfgFile)
+	c.resolvePaths(c.BaseDir)
 	return c, nil
 }
 
-// resolvePaths makes the relative paths of the files section, from the
-// defaults or from the config file, relative to dir (--dir).  Absolute
-// paths are kept.  Without --dir, relative paths stay relative to the
-// current directory.
-func (c *Config) resolvePaths(dir string) {
-	if dir == "" {
+// unknownOptions returns a warning for every option in the YAML config data
+// that yamn doesn't know, e.g. a misspelt one.  They are ignored, not an
+// error, so a config file with an option of another yamn version still
+// works.
+func unknownOptions(name string, data []byte) (warnings []string) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var typeErr *yaml.TypeError
+	if !errors.As(dec.Decode(new(Config)), &typeErr) {
 		return
 	}
+	for _, msg := range typeErr.Errors {
+		// "line 7: field key_qorum not found in type struct {...}"
+		line, rest, ok := strings.Cut(msg, ": field ")
+		option, _, found := strings.Cut(rest, " not found in type")
+		if ok && found {
+			warnings = append(warnings, fmt.Sprintf("%s, %s: unknown option %q, ignored", name, line, option))
+		}
+	}
+	return
+}
+
+// validate checks the values that would make yamn fail or panic later.
+func (c *Config) validate() error {
+	var errs []error
+	check := func(ok bool, format string, args ...any) {
+		if !ok {
+			errs = append(errs, fmt.Errorf(format, args...))
+		}
+	}
+	s := c.Stats
+	check(s.Distance >= 0, "stats.distance must be at least 0, not %d", s.Distance)
+	check(s.Minlat >= 0, "stats.minlat must be at least 0, not %d", s.Minlat)
+	check(s.Maxlat >= s.Minlat, "stats.maxlat (%d) must be at least stats.minlat (%d)", s.Maxlat, s.Minlat)
+	check(s.Minrel >= 0 && s.Minrel <= 100, "stats.minrel must be 0 to 100, not %g", s.Minrel)
+	check(s.Relfinal >= 0 && s.Relfinal <= 100, "stats.rel_final must be 0 to 100, not %g", s.Relfinal)
+	check(c.Urls.KeyQuorum >= 1, "urls.key_quorum must be at least 1, not %d", c.Urls.KeyQuorum)
+	return errors.Join(errs...)
+}
+
+// resolvePaths makes the relative paths of the files section, from the
+// defaults or from the config file, relative to dir (BaseDir).  Absolute
+// paths are kept.  With an empty dir, relative paths stay relative to the
+// current directory.
+func (c *Config) resolvePaths(dir string) {
 	for _, p := range []*string{
 		&c.Files.Pubkey, &c.Files.Pubring, &c.Files.Secring, &c.Files.Mlist2,
 		&c.Files.Adminkey, &c.Files.Help, &c.Files.Pooldir, &c.Files.Maildir,
 		&c.Files.IDlog, &c.Files.ChunkDB, &c.Files.Logfile, &c.Files.DestBlock,
 	} {
-		if *p != "" && !filepath.IsAbs(*p) {
+		// A leading "~/" is the home directory, as in a shell.
+		*p = expandHome(*p)
+		if dir != "" && *p != "" && !filepath.IsAbs(*p) {
 			*p = filepath.Join(dir, *p)
 		}
 	}
+}
+
+// expandHome replaces a leading "~/" (or a lone "~") in p with the home
+// directory.  "~user" isn't supported.  Without a home directory, p is
+// returned as it is.
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, p[1:])
 }

@@ -72,7 +72,7 @@ func TestExampleDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantKeys := slices.DeleteFunc(keys(t, want), func(k string) bool { return k == "files.config" })
+	wantKeys := keys(t, want)
 	if got := keys(t, data); !slices.Equal(got, wantKeys) {
 		t.Errorf("%s doesn't list exactly the config options.\nFile:     %q\nExpected: %q", file, got, wantKeys)
 	}

@@ -1,6 +1,7 @@
 package linebreaker
 
 import (
+	"errors"
 	"io"
 )
 
@@ -17,13 +18,17 @@ type lineBreaker struct {
 func NewLineBreaker(out io.Writer, lineLength int) *lineBreaker {
 	return &lineBreaker{
 		lineLength: lineLength,
-		line:       make([]byte, lineLength),
+		line:       make([]byte, max(lineLength, 0)),
 		used:       0,
 		out:        out,
 	}
 }
 
 func (l *lineBreaker) Write(b []byte) (n int, err error) {
+	// A line length below 1 would recurse forever.
+	if l.lineLength < 1 {
+		return 0, errors.New("linebreaker: line length must be at least 1")
+	}
 	n = len(b)
 
 	if n == 0 {

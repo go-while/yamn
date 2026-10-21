@@ -252,12 +252,13 @@ func TestDirRelativePaths(t *testing.T) {
 		}
 	}
 
-	// Without --dir, paths stay relative to the current directory.
+	// Without --dir, paths are relative to the directory of the --config
+	// file (see basedir_test.go).
 	c, err = (&Flags{Config: cfgFile}).ParseConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Files.Pubring != "my.mix" || c.Files.Secring != "secring.mix" {
+	if c.Files.Pubring != filepath.Join(dir, "my.mix") || c.Files.Secring != filepath.Join(dir, "secring.mix") {
 		t.Errorf("without --dir: pubring %q, secring %q", c.Files.Pubring, c.Files.Secring)
 	}
 }
@@ -268,14 +269,14 @@ func TestResolvePathsCoversFiles(t *testing.T) {
 	c := new(Config)
 	v := reflect.ValueOf(&c.Files).Elem()
 	for i := 0; i < v.NumField(); i++ {
-		if v.Type().Field(i).Tag.Get("yaml") != "" {
+		if tag := v.Type().Field(i).Tag.Get("yaml"); tag != "" && tag != "-" {
 			v.Field(i).SetString("rel")
 		}
 	}
 	c.resolvePaths("/d")
 	for i := 0; i < v.NumField(); i++ {
 		f := v.Type().Field(i)
-		if f.Tag.Get("yaml") != "" && v.Field(i).String() != "/d/rel" {
+		if tag := f.Tag.Get("yaml"); tag != "" && tag != "-" && v.Field(i).String() != "/d/rel" {
 			t.Errorf("files.%s is not resolved against --dir", f.Tag.Get("yaml"))
 		}
 	}
