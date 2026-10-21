@@ -76,7 +76,13 @@ func (s *Secring) SetName(name string) {
 		)
 		panic(err)
 	}
-	s.name = strings.ToLower(name)
+	name = strings.ToLower(name)
+	// Clients ignore keys with other names.
+	if !ValidName(name) {
+		err = fmt.Errorf("%s: Remailer name may only contain letters and digits.", name)
+		panic(err)
+	}
+	s.name = name
 }
 
 // SetAddress validates and sets the remailer address
@@ -98,6 +104,11 @@ func (s *Secring) SetAddress(addy string) {
 		)
 		panic(err)
 	} else if index == 0 || l-index < 3 {
+		err = fmt.Errorf("%s: Invalid remailer address.", addy)
+		panic(err)
+	}
+	// Clients ignore keys with other addresses.
+	if !ValidAddress(addy) {
 		err = fmt.Errorf("%s: Invalid remailer address.", addy)
 		panic(err)
 	}

@@ -671,7 +671,11 @@ func randhop(plainMsg []byte) {
 		panic(err)
 	}
 	log.Tracef("Performing a random hop to Exit Remailer: %s.", chain[0])
-	yamnMsg := encodeMsg(plainMsg, chain, *final)
+	yamnMsg, err := encodeMsg(plainMsg, chain, *final)
+	if err != nil {
+		log.Warnf("Randhop failed, message dropped: %s", err)
+		return
+	}
 	if err = writeMessageToPool(sendTo, yamnMsg); err != nil {
 		log.Warn(err)
 		return

@@ -209,11 +209,15 @@ func mixprep() {
 			if flag.Client {
 				log.Infof("Chain: %s\n", strings.Join(chain, ","))
 			}
-			yamnMsg := encodeMsg(
+			yamnMsg, err := encodeMsg(
 				plain[firstByte:lastByte],
 				chain,
 				*final,
 			)
+			if err != nil {
+				log.Error(err)
+				os.Exit(1)
+			}
 			if err = outputMessage(sendTo, yamnMsg); err != nil {
 				log.Error(err)
 				os.Exit(1)
@@ -255,11 +259,12 @@ func numCopies() int {
 	return max(1, min(copies, maxCopies))
 }
 
-// encodeMsg encodes a plaintext fragment into mixmaster format.
+// encodeMsg encodes a plaintext fragment into mixmaster format.  It fails if
+// a hop isn't in the public keyring.
 func encodeMsg(
 	plain []byte,
 	chain []string,
-	final slotFinal) []byte {
+	final slotFinal) ([]byte, error) {
 
 	var err error
 	var hop string
@@ -284,11 +289,7 @@ func encodeMsg(
 	// Get KeyID and NaCl PK for the remailer we're enrypting to.
 	remailer, err := Pubring.Get(hop)
 	if err != nil {
-		log.Errorf(
-			"%s: Remailer unknown in public keyring\n",
-			hop,
-		)
-		os.Exit(1)
+		return nil, err
 	}
 	// Create a new Header.
 	header := newEncodeHeader()
@@ -340,11 +341,7 @@ func encodeMsg(
 		header = newEncodeHeader()
 		remailer, err := Pubring.Get(hop)
 		if err != nil {
-			log.Errorf(
-				"%s: Remailer unknown in public keyring\n",
-				hop,
-			)
-			os.Exit(1)
+			return nil, err
 		}
 		header.setRecipient(remailer.Keyid, remailer.PK)
 		log.Tracef(
@@ -357,7 +354,7 @@ func encodeMsg(
 	if len(chain) != 0 {
 		panic("After encoding, chain was not empty.")
 	}
-	return m.getPayload()
+	return m.getPayload(), nil
 }
 
 func injectDummy() {
@@ -421,7 +418,11 @@ func dummy() {
 		return
 	}
 	log.Tracef("Sending dummy through: %s.", strings.Join(chain, ","))
-	yamnMsg := encodeMsg(plainMsg, chain, *final)
+	yamnMsg, err := encodeMsg(plainMsg, chain, *final)
+	if err != nil {
+		log.Warnf("Dummy creation failed: %s", err)
+		return
+	}
 	if err = writeMessageToPool(sendTo, yamnMsg); err != nil {
 		log.Warnf("Dummy creation failed: %s", err)
 	}

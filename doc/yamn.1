@@ -184,6 +184,12 @@ and
 are minimal starting points.
 .B "yamn --debug"
 prints the configuration in effect.
+.PP
+yamn ignores a key in
+.I pubring.mix
+whose remailer name isn't made of lowercase letters and digits, or whose
+address isn't a single local@domain of at most 52 characters.  Keys that share
+a name but not the address, or the address but not the name, are ignored too.
 .SS Several pingers
 By default the keyring and statistics come from a single pinger
 .RB ( urls.pubring
