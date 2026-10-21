@@ -16,6 +16,7 @@ func setupFooReply(t *testing.T, block string) *fakeSMTP {
 	setupTestConfig(t)
 	cfg.Mail.MXRelay = false
 	cfg.Mail.SMTPRelay = "localhost"
+	cfg.Files.Pooldir = t.TempDir()
 	cfg.Files.Help = filepath.Join(t.TempDir(), "help.txt")
 	if err := os.WriteFile(cfg.Files.Help, []byte("Help\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -62,6 +63,8 @@ func TestRemailerFooReplyHeaders(t *testing.T) {
 	if err := remailerFoo("remailer-help", "someone@example.invalid"); err != nil {
 		t.Fatalf("remailer-help failed: %s", err)
 	}
+	// Replies are pooled and sent with the pool.
+	poolOutboundSend()
 	server.mu.Lock()
 	data := string(server.data)
 	server.mu.Unlock()
