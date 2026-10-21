@@ -709,7 +709,9 @@ not part of the repository yet and come with the fixes.
 - **Fix:** write the secret first, and check the advertised keyid against the
   secret keyring at startup.
 - **Found:** review 2, C-2. Test: `TestReviewC2AdvertisedKeyNotInSecring`.
-- **Status:** open.
+- **Status:** fixed in `facd846` (branch `fix/36-advertised-key`, #48). Tests:
+  `TestGenerateKeypairSecretFirst`, `TestStartupKeysAdvertisedNotInSecring`,
+  `TestStartupKeysKeepsGoodKey`, `TestStartupKeysPublicKeyMismatch`.
 
 ### Y-37: Secret keyring handling: purge, crash safety, dates
 
