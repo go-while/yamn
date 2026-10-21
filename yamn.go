@@ -101,6 +101,9 @@ func main() {
 			local, local,
 		)
 	}
+	for _, w := range cfg.PathWarnings() {
+		log.Warn(w)
+	}
 
 	// Setup complete, time to do some work
 	if flag.Client {

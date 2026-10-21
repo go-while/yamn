@@ -22,8 +22,9 @@ general:
     # Log to the systemd journal instead of stderr (not together with logtofile)
     logtojournal: false
 
-# Paths are relative to --dir, or to the current directory if --dir isn't
-# given.
+# Relative paths are relative to --dir, or without --dir to the directory of
+# the --config or $YAMNCFG file, or else to the current directory (with a
+# warning).
 files:
     # Public keyring of all known remailers (downloaded from urls.pubring)
     pubring: pubring.mix

@@ -380,7 +380,9 @@ func timedURLFetch(url, filename string, validate func([]byte) error) {
 		stamp, err = fileTime(filename)
 		if err != nil {
 			doFetch = true
-		} else if time.Since(stamp) > time.Hour {
+		} else if age := time.Since(stamp); age > time.Hour || age < -time.Minute {
+			// A file dated in the future, e.g. unpacked from an archive,
+			// would otherwise never be fetched again.
 			doFetch = true
 		} else {
 			doFetch = false
