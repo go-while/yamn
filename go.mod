@@ -1,6 +1,6 @@
 module github.com/crooks/yamn
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/Masterminds/log-go v1.0.0
