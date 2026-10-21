@@ -742,7 +742,8 @@ not part of the repository yet and come with the fixes.
 - **Fix:** log and delete the bad entry, and use
   `errors.Is(err, leveldb.ErrNotFound)`.
 - **Found:** review 2, C-7. Test: `TestReviewC7ExpirePanicsOnBadValue`.
-- **Status:** open.
+- **Status:** fixed in `33a7b1f` (branch `fix/38-idlog-expire`, #46). Tests:
+  `TestExpireBadValue`.
 
 ### Y-39: Multi-pinger merge: quorum shrinks, ties go to the freshest pinger
 
