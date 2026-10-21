@@ -63,14 +63,43 @@ func TestExpire(t *testing.T) {
 	i.validity = validity
 	i.Unique([]byte("new"))
 
-	count, deleted := i.Expire()
-	if count != 1 || deleted != 1 {
-		t.Fatalf("Expire: expected count=1, deleted=1, got count=%d, deleted=%d", count, deleted)
+	count, deleted, bad := i.Expire()
+	if count != 1 || deleted != 1 || bad != 0 {
+		t.Fatalf("Expire: expected count=1, deleted=1, bad=0, got count=%d, deleted=%d, bad=%d", count, deleted, bad)
 	}
 	if !i.Unique([]byte("old")) {
 		t.Fatal("Expired key should have been deleted")
 	}
 	if i.Unique([]byte("new")) {
 		t.Fatal("Unexpired key should have been kept")
+	}
+}
+
+// TestExpireBadValue checks that an unreadable entry doesn't stop Expire,
+// which runs at every startup, and that its packet ID stays known.
+func TestExpireBadValue(t *testing.T) {
+	i, _ := newTestIDLog(t)
+	i.Unique([]byte("good"))
+	if err := i.db.Put([]byte("corrupt"), []byte("not a gob time"), nil); err != nil {
+		t.Fatal(err)
+	}
+	var count, deleted, bad int
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("Expire panics on a bad entry: %v", r)
+			}
+		}()
+		count, deleted, bad = i.Expire()
+	}()
+	if count != 2 || deleted != 0 || bad != 1 {
+		t.Fatalf("Expire: expected count=2, deleted=0, bad=1, got %d, %d, %d", count, deleted, bad)
+	}
+	if i.Unique([]byte("corrupt")) {
+		t.Fatal("the packet ID of the bad entry was forgotten")
+	}
+	// The entry was repaired: the next run can read it.
+	if _, _, bad = i.Expire(); bad != 0 {
+		t.Fatalf("bad entry not repaired: bad=%d", bad)
 	}
 }

@@ -218,7 +218,10 @@ func generateKeypair(secret *keymgr.Secring) {
 
 // idLogExpire deletes old entries in the ID Log
 func idLogExpire() {
-	count, deleted := IDDb.Expire()
+	count, deleted, bad := IDDb.Expire()
+	if bad > 0 {
+		log.Warnf("ID Log: %d entries had an unreadable expiry date and were given a new one", bad)
+	}
 	log.Infof("ID Log: Expired=%d, Contains=%d", deleted, count)
 }
 
