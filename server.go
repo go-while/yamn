@@ -798,7 +798,12 @@ func remailerFoo(subject, from string) (err error) {
 		} else {
 			m.Text("Maximum recipients: unlimited\n")
 		}
-		m.Text("The following header lines will be filtered:\n")
+		if cfg.Remailer.Exit {
+			m.Text("The following header lines will be passed on, all others are filtered:\n")
+			for _, h := range passedHeaders() {
+				m.Text("   " + h + "\n")
+			}
+		}
 		m.Text(
 			fmt.Sprintf("\n$remailer{\"%s\"} = \"<%s>",
 				cfg.Remailer.Name, cfg.Remailer.Address))

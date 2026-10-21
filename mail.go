@@ -14,6 +14,7 @@ import (
 	"net/textproto"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -163,6 +164,27 @@ func extraAllowedHeaders() map[string]bool {
 // header.
 func headerAllowed(k string, extra map[string]bool) bool {
 	return exitHeaders[k] || extra[k] || strings.HasPrefix(k, "Content-")
+}
+
+// passedHeaders returns, sorted, the headers an exit passes on from a
+// message, for the remailer-conf reply.  Date and Message-Id are replaced by
+// the exit's own, and so is From unless custom_from is set.
+func passedHeaders() (names []string) {
+	set := extraAllowedHeaders()
+	for k := range exitHeaders {
+		set[k] = true
+	}
+	delete(set, "Date")
+	delete(set, "Message-Id")
+	if !cfg.Mail.CustomFrom {
+		delete(set, "From")
+	}
+	for k := range set {
+		names = append(names, k)
+	}
+	names = append(names, "Content-*")
+	slices.Sort(names)
+	return
 }
 
 // filterHeaders removes every header from h that isn't allowed to reach the
