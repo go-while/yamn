@@ -6,15 +6,14 @@ to that branch at commit `788b526`.
 Status values: **open**, **in progress**, **fixed** (with commit).
 
 Y-23 to Y-52 come from a second review of `master` at `15acb78`
-(2026-10-21; crypto/packets, mail/network, client/config). The review test
-names refer to tests written in a scratch copy during that review; they are
-not part of the repository yet and come with the fixes.
+(2026-10-21; crypto/packets, mail/network, client/config). Y-53 and Y-54
+were found later. Each status line names the tests that came with the fix.
 
 | ID | Severity | Summary | Status |
 |---|---|---|---|
 | [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | fixed (4f370cc) |
-| [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | fixed (6c0fb7e) |
-| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c; pinger cross-check: de59490) |
+| [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | fixed (6c0fb7e, f894bf0) |
+| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c; pinger quorum: de59490; remailer self-check: 5020c1b) |
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | fixed (a4ad3ce) |
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | fixed (486f1e6) |
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
@@ -34,36 +33,38 @@ not part of the repository yet and come with the fixes.
 | [Y-20](#y-20-client-does-not-strip-identifying-headers) | Low | Client does not strip identifying headers | fixed (0d01f6a) |
 | [Y-21](#y-21-client-ignores-the-message-file-argument) | Medium | Client ignores the message file argument | fixed (13fcf17) |
 | [Y-22](#y-22-relative-paths-in-yamnyml-ignore---dir) | Low | Relative paths in yamn.yml ignore `--dir` | fixed (6886742) |
-| [Y-23](#y-23-malformed-pubring-entries-can-stop-a-remailer) | Medium | Malformed pubring entries can stop a remailer | open |
-| [Y-24](#y-24-quoted-addresses-inject-esmtp-parameters-past-the-block-list) | Medium | Quoted addresses inject ESMTP parameters past the block list | open |
-| [Y-25](#y-25-a-bare-cr-reaches-the-smtp-wire) | Medium | A bare CR reaches the SMTP wire | open |
-| [Y-26](#y-26-pipe-mode-ignores-the-block-list-and-drops-bcc) | Medium | Pipe mode ignores the block list and drops Bcc | open |
-| [Y-27](#y-27-a-message-can-stay-in-the-pool-forever) | Medium | A message can stay in the pool forever | open |
-| [Y-28](#y-28-a-slow-mail-server-blocks-the-remailer-tarpit) | Medium | A slow mail server blocks the remailer (tarpit) | open |
-| [Y-29](#y-29-data-files-are-read-from-the-current-directory-without---dir) | Medium | Data files are read from the current directory without --dir | open |
-| [Y-30](#y-30-distance-is-ignored-for-hops-named-in---chain) | Medium | `distance` is ignored for hops named in --chain | open |
-| [Y-31](#y-31-messages-over-255-chunks-are-truncated) | Medium | Messages over 255 chunks are truncated | open |
-| [Y-32](#y-32-merged-stats-have-no-quorum) | Medium | Merged stats have no quorum | open |
-| [Y-33](#y-33-pool-and-chunk-files-are-not-written-atomically) | Low | Pool and chunk files are not written atomically | open |
-| [Y-34](#y-34-partial-chunks-have-no-storage-limit) | Low | Partial chunks have no storage limit | open |
-| [Y-35](#y-35-a-running-remailer-keeps-keys-that-left-the-keyring) | Low | A running remailer keeps keys that left the keyring | open |
-| [Y-36](#y-36-the-advertised-key-is-not-checked-against-the-secret-keyring) | Low | The advertised key is not checked against the secret keyring | open |
-| [Y-37](#y-37-secret-keyring-handling-purge-crash-safety-dates) | Low | Secret keyring handling: purge, crash safety, dates | open |
-| [Y-38](#y-38-one-corrupt-idlog-entry-stops-every-startup) | Low | One corrupt idlog entry stops every startup | open |
-| [Y-39](#y-39-multi-pinger-merge-quorum-shrinks-ties-go-to-the-freshest-pinger) | Low | Multi-pinger merge: quorum shrinks, ties go to the freshest pinger | open |
-| [Y-40](#y-40-downloads-weaker-checks-than-the-parsers-httpshttp-redirects) | Low | Downloads: weaker checks than the parsers, https→http redirects | open |
-| [Y-41](#y-41-delivery-failures-5xx-retried-for-28-days-mx-fallback) | Low | Delivery failures: 5xx retried for 28 days, MX fallback | open |
-| [Y-42](#y-42-remailer--replies-skip-the-block-list-and-lack-datemessage-id) | Low | `remailer-*` replies skip the block list and lack Date/Message-ID | open |
-| [Y-43](#y-43-no-limit-on-recipients-per-exit-message) | Low | No limit on recipients per exit message | open |
-| [Y-44](#y-44-no-pool-lock--s-next-to-a---daemon-remailer-sends-twice) | Low | No pool lock: `-S` next to a `--daemon` remailer sends twice | open |
-| [Y-45](#y-45-config-silent-fallbacks-unknown-keys-no-value-checks) | Low | Config: silent fallbacks, unknown keys, no value checks | open |
-| [Y-46](#y-46-client-exit-status-and-argument-checks) | Low | Client: exit status and argument checks | open |
-| [Y-47](#y-47-the-client-keeps-the-from-address-and-reply-to) | Low | The client keeps the From address and Reply-To | open |
-| [Y-48](#y-48-logs-reveal-recipients-and-chains) | Low | Logs reveal recipients and chains | open |
-| [Y-49](#y-49-the-keyring-is-fetched-at-send-time) | Low | The keyring is fetched at send time | open |
-| [Y-50](#y-50-smaller-mail-issues) | Info | Smaller mail issues | open |
-| [Y-51](#y-51-smaller-client-and-documentation-issues) | Info | Smaller client and documentation issues | open |
+| [Y-23](#y-23-malformed-pubring-entries-can-stop-a-remailer) | Medium | Malformed pubring entries can stop a remailer | fixed (5d873f0) |
+| [Y-24](#y-24-quoted-addresses-inject-esmtp-parameters-past-the-block-list) | Medium | Quoted addresses inject ESMTP parameters past the block list | fixed (9d0a28c) |
+| [Y-25](#y-25-a-bare-cr-reaches-the-smtp-wire) | Medium | A bare CR reaches the SMTP wire | fixed (f683da2) |
+| [Y-26](#y-26-pipe-mode-ignores-the-block-list-and-drops-bcc) | Medium | Pipe mode ignores the block list and drops Bcc | fixed (1be63d6, ba4e52e) |
+| [Y-27](#y-27-a-message-can-stay-in-the-pool-forever) | Medium | A message can stay in the pool forever | fixed (7e4d2ef) |
+| [Y-28](#y-28-a-slow-mail-server-blocks-the-remailer-tarpit) | Medium | A slow mail server blocks the remailer (tarpit) | fixed (f52684e) |
+| [Y-29](#y-29-data-files-are-read-from-the-current-directory-without---dir) | Medium | Data files are read from the current directory without --dir | fixed (190c4df) |
+| [Y-30](#y-30-distance-is-ignored-for-hops-named-in---chain) | Medium | `distance` is ignored for hops named in --chain | fixed (d318037) |
+| [Y-31](#y-31-messages-over-255-chunks-are-truncated) | Medium | Messages over 255 chunks are truncated | fixed (10c7f3a) |
+| [Y-32](#y-32-merged-stats-have-no-quorum) | Medium | Merged stats have no quorum | fixed (acc3a29) |
+| [Y-33](#y-33-pool-and-chunk-files-are-not-written-atomically) | Low | Pool and chunk files are not written atomically | fixed (18fa9b6) |
+| [Y-34](#y-34-partial-chunks-have-no-storage-limit) | Low | Partial chunks have no storage limit | fixed (357ca71) |
+| [Y-35](#y-35-a-running-remailer-keeps-keys-that-left-the-keyring) | Low | A running remailer keeps keys that left the keyring | fixed (10bdce7) |
+| [Y-36](#y-36-the-advertised-key-is-not-checked-against-the-secret-keyring) | Low | The advertised key is not checked against the secret keyring | fixed (facd846) |
+| [Y-37](#y-37-secret-keyring-handling-purge-crash-safety-dates) | Low | Secret keyring handling: purge, crash safety, dates | fixed (ec384eb) |
+| [Y-38](#y-38-one-corrupt-idlog-entry-stops-every-startup) | Low | One corrupt idlog entry stops every startup | fixed (33a7b1f) |
+| [Y-39](#y-39-multi-pinger-merge-quorum-shrinks-ties-go-to-the-freshest-pinger) | Low | Multi-pinger merge: quorum shrinks, ties go to the freshest pinger | fixed (e03aacd) |
+| [Y-40](#y-40-downloads-weaker-checks-than-the-parsers-httpshttp-redirects) | Low | Downloads: weaker checks than the parsers, https→http redirects | fixed (db79575) |
+| [Y-41](#y-41-delivery-failures-5xx-retried-for-28-days-mx-fallback) | Low | Delivery failures: 5xx retried for 28 days, MX fallback | fixed (a32d44a, 2381a01) |
+| [Y-42](#y-42-remailer--replies-skip-the-block-list-and-lack-datemessage-id) | Low | `remailer-*` replies skip the block list and lack Date/Message-ID | fixed (b937780) |
+| [Y-43](#y-43-no-limit-on-recipients-per-exit-message) | Low | No limit on recipients per exit message | fixed (7107b69) |
+| [Y-44](#y-44-no-pool-lock--s-next-to-a---daemon-remailer-sends-twice) | Low | No pool lock: `-S` next to a `--daemon` remailer sends twice | fixed (6545c02) |
+| [Y-45](#y-45-config-silent-fallbacks-unknown-keys-no-value-checks) | Low | Config: silent fallbacks, unknown keys, no value checks | fixed (6182aa3) |
+| [Y-46](#y-46-client-exit-status-and-argument-checks) | Low | Client: exit status and argument checks | fixed (b2b3976) |
+| [Y-47](#y-47-the-client-keeps-the-from-address-and-reply-to) | Low | The client keeps the From address and Reply-To | fixed (3510062) |
+| [Y-48](#y-48-logs-reveal-recipients-and-chains) | Low | Logs reveal recipients and chains | fixed (36d0474) |
+| [Y-49](#y-49-the-keyring-is-fetched-at-send-time) | Low | The keyring is fetched at send time | fixed (6902217) |
+| [Y-50](#y-50-smaller-mail-issues) | Info | Smaller mail issues | fixed (12 commits, see entry) |
+| [Y-51](#y-51-smaller-client-and-documentation-issues) | Info | Smaller client and documentation issues | fixed (f221517) |
 | [Y-52](#y-52-crypto-notes-no-action-needed) | Info | Crypto notes (no action needed) | no action |
+| [Y-53](#y-53-mail-with-several-recipients-goes-to-smtp_relay) | Medium | Mail with several recipients goes to `smtp_relay` | fixed (da315a3) |
+| [Y-54](#y-54-mail-to-onion-hosts-cant-be-delivered) | Low | Mail to `.onion` hosts can't be delivered | fixed (436880c, ab102ec) |
 
 ---
 
@@ -1064,5 +1065,16 @@ not part of the repository yet and come with the fixes.
     insert `Yamn-Pooled-Date` lines into the body (upstream's half of Y-05).
   - Upstream clients reuse one packet ID for all chunks, so every exit drops
     their chunks 2+.
-- **Found:** review 2, C-9 to C-11.
+- **`github.com/dchest/blake2s`** (v1.0.0, last commit 2017, CC0):
+  - Used for keyids, BLAKE2s-128 (`keymgr/public.go`, `makeKeyID`), and the
+    armor digest, BLAKE2s-256 (`utils.go`, `armor` and `stripArmor`). The
+    anti-tag check in `packet.go` uses `golang.org/x/crypto/blake2s`.
+  - Reviewed 2026-10-22: its output matches Python's `hashlib.blake2s` and
+    `x/crypto/blake2s` for all sizes from 1 to 32 bytes, keyed and unkeyed,
+    with salt, personalization and tree parameters, chunked writes, and
+    input past 4 GiB. Pure Go, no `unsafe`, and `Write` can't panic.
+  - It stays: keyids need unkeyed BLAKE2s-128, and `x/crypto` refuses that
+    ("a key is required for a 128-bit hash"). Moving the armor digest to
+    `x/crypto` gives the same output but wouldn't remove the dependency.
+- **Found:** review 2, C-9 to C-11; dchest review 2026-10-22.
 - **Status:** no action needed.
