@@ -546,6 +546,23 @@ not part of the repository yet and come with the fixes.
 - **Status:** fixed in `acc3a29` (branch `fix/32-stats-quorum`, #52). Tests:
   `TestMedian`, `TestMergeStatsQuorum`.
 
+### Y-53: Mail with several recipients goes to `smtp_relay`
+
+- **Where:** `mail.go` (`smtpRelay`, `smtpSend`, `mailPoolFile`).
+- **Impact:** with `mx_relay`, only a message with one recipient goes to the
+  recipient's MX. One with more (To and Cc, or Bcc) goes to `smtp_relay`,
+  whose default `fleegle.mixmin.net` belongs to the upstream author: it has
+  no SMTP AUTH and answers `554 5.7.1 Relay access denied` to other hosts
+  (checked 2026-10-22 from two addresses, without sending). An exit that kept
+  the default retried such mail until `pool.max_age` and dropped it. Where a
+  relay does take it, that server sees every recipient, Bcc included.
+  Delivery is all or nothing: one `4xx` for one recipient (greylisting)
+  stops the whole message, and a retry sends to everyone again.
+- **Fix:** deliver to each recipient domain's MX, and remember in the pool
+  file who already has the message, so a retry only sends to the rest.
+- **Found:** review 2, M-18 (not in Y-50).
+- **Status:** open.
+
 ## Low
 
 ### Y-14: Biased shuffle
