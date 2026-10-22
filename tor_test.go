@@ -516,3 +516,25 @@ func TestNagTor(t *testing.T) {
 		}
 	}
 }
+
+// TestDescribeTorError checks that Tor's onion service codes, which
+// x/net/proxy calls "unknown code: N", get their meaning, and that other
+// errors are kept as they are.
+func TestDescribeTorError(t *testing.T) {
+	for in, want := range map[string]string{
+		"socks connect tcp a->b:25: unknown error unknown code: 246": "unknown error unknown code: 246 (invalid onion address)",
+		"unknown error unknown code: 247":                            "unknown code: 247 (onion service introduction timed out)",
+		"unknown error unknown code: 9":                              "unknown error unknown code: 9",
+		"unknown error general SOCKS server failure":                 "unknown error general SOCKS server failure",
+		"connection refused":                                         "connection refused",
+	} {
+		orig := errors.New(in)
+		err := describeTorError(orig)
+		if !strings.HasSuffix(err.Error(), want) {
+			t.Errorf("%q: got %q, want it to end in %q", in, err, want)
+		}
+		if !errors.Is(err, orig) {
+			t.Errorf("%q: the original error isn't wrapped", in)
+		}
+	}
+}

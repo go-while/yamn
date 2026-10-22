@@ -1,19 +1,19 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha3"
 	"encoding/base32"
-	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/smtp"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/proxy"
 )
 
 // Mail to .onion hosts goes through Tor's SOCKS port (mail.tor_socks).
@@ -68,143 +68,56 @@ var onionDial = func(address string) (net.Conn, error) {
 }
 
 // torDial connects to address (host:port) through the SOCKS5 proxy at
-// proxyAddr (RFC 1928).  The host name goes to the proxy as it is, so Tor
-// resolves it, not the local resolver.  Every call logs in with a new
-// random user name, so Tor (IsolateSOCKSAuth, on by default) builds it its
-// own circuit, and deliveries of different messages don't share one.
+// proxyAddr.  The host name goes to the proxy as it is, so Tor resolves
+// it, not the local resolver.  Every call logs in with a new random user
+// name, so Tor (IsolateSOCKSAuth, on by default) builds it its own
+// circuit, and deliveries of different messages don't share one.
 func torDial(proxyAddr, address string, timeout time.Duration) (net.Conn, error) {
-	host, portStr, err := net.SplitHostPort(address)
-	if err != nil {
+	user := make([]byte, 16)
+	if _, err := rand.Read(user); err != nil {
 		return nil, err
 	}
-	port, err := strconv.ParseUint(portStr, 10, 16)
-	if err != nil {
-		return nil, fmt.Errorf("bad port in %s", address)
-	}
-	if len(host) == 0 || len(host) > 255 {
-		return nil, fmt.Errorf("bad host name in %s", address)
-	}
-	conn, err := net.DialTimeout("tcp", proxyAddr, timeout)
+	auth := &proxy.Auth{User: hex.EncodeToString(user), Password: "x"}
+	dialer, err := proxy.SOCKS5("tcp", proxyAddr, auth, &net.Dialer{Timeout: timeout})
 	if err != nil {
 		return nil, fmt.Errorf("tor_socks %s: %w", proxyAddr, err)
 	}
-	if err = conn.SetDeadline(time.Now().Add(timeout)); err == nil {
-		err = socks5Connect(conn, host, uint16(port))
-	}
-	if err == nil {
-		err = conn.SetDeadline(time.Time{})
-	}
+	// The deadline covers the SOCKS handshake too, which waits for Tor
+	// to reach the onion service.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := dialer.(proxy.ContextDialer).DialContext(ctx, "tcp", address)
 	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("tor_socks %s to %s: %w", proxyAddr, address, err)
+		return nil, fmt.Errorf("tor_socks %s to %s: %w", proxyAddr, address, describeTorError(err))
 	}
 	return conn, nil
 }
 
-// socks5Connect does the SOCKS5 handshake on conn and asks for a
-// connection to host:port.
-func socks5Connect(conn net.Conn, host string, port uint16) error {
-	// Offer no authentication and username/password.  Tor picks the
-	// latter when offered.
-	if _, err := conn.Write([]byte{5, 2, 0, 2}); err != nil {
+// describeTorError adds the meaning of Tor's own SOCKS5 reply codes for
+// onion services, which golang.org/x/net/proxy reports as "unknown code:
+// N".  Tor sends them with the SocksPort flag ExtendedErrors.
+func describeTorError(err error) error {
+	_, after, ok := strings.Cut(err.Error(), "unknown code: ")
+	if !ok {
 		return err
 	}
-	reply := make([]byte, 2)
-	if _, err := io.ReadFull(conn, reply); err != nil {
+	end := strings.IndexFunc(after, func(c rune) bool { return c < '0' || c > '9' })
+	if end < 0 {
+		end = len(after)
+	}
+	code, cerr := strconv.Atoi(after[:end])
+	if cerr != nil {
 		return err
 	}
-	if reply[0] != 5 {
-		return fmt.Errorf("not a SOCKS5 proxy (version %d)", reply[0])
+	if desc := torReply(code); desc != "" {
+		return fmt.Errorf("%w (%s)", err, desc)
 	}
-	switch reply[1] {
-	case 0:
-	case 2:
-		if err := socks5Login(conn); err != nil {
-			return err
-		}
-	default:
-		return errors.New("the proxy accepts none of the offered login methods")
-	}
-	req := []byte{5, 1, 0, 3, byte(len(host))} // CONNECT to a domain name
-	req = append(req, host...)
-	req = binary.BigEndian.AppendUint16(req, port)
-	if _, err := conn.Write(req); err != nil {
-		return err
-	}
-	head := make([]byte, 4)
-	if _, err := io.ReadFull(conn, head); err != nil {
-		return err
-	}
-	if head[0] != 5 {
-		return fmt.Errorf("bad SOCKS5 reply version %d", head[0])
-	}
-	if head[1] != 0 {
-		return fmt.Errorf("SOCKS5 error 0x%02x: %s", head[1], socks5Reply(head[1]))
-	}
-	// Skip the bound address and port.
-	var skip int
-	switch head[3] {
-	case 1:
-		skip = 4 + 2
-	case 4:
-		skip = 16 + 2
-	case 3:
-		n := make([]byte, 1)
-		if _, err := io.ReadFull(conn, n); err != nil {
-			return err
-		}
-		skip = int(n[0]) + 2
-	default:
-		return fmt.Errorf("bad SOCKS5 address type %d", head[3])
-	}
-	_, err := io.ReadFull(conn, make([]byte, skip))
 	return err
 }
 
-// socks5Login sends a random user name and password (RFC 1929).  They
-// only select the circuit.
-func socks5Login(conn net.Conn) error {
-	user := make([]byte, 16)
-	if _, err := rand.Read(user); err != nil {
-		return err
-	}
-	name := hex.EncodeToString(user)
-	req := []byte{1, byte(len(name))}
-	req = append(req, name...)
-	req = append(req, 1, 'x')
-	if _, err := conn.Write(req); err != nil {
-		return err
-	}
-	reply := make([]byte, 2)
-	if _, err := io.ReadFull(conn, reply); err != nil {
-		return err
-	}
-	if reply[1] != 0 {
-		return errors.New("the proxy refused the login")
-	}
-	return nil
-}
-
-// socks5Reply describes a SOCKS5 reply code, with Tor's codes for onion
-// services (sent with the SocksPort flag ExtendedErrors).
-func socks5Reply(code byte) string {
+// torReply describes Tor's SOCKS5 reply codes for onion services.
+func torReply(code int) string {
 	switch code {
-	case 1:
-		return "general failure"
-	case 2:
-		return "not allowed by the proxy"
-	case 3:
-		return "network unreachable"
-	case 4:
-		return "host unreachable"
-	case 5:
-		return "connection refused"
-	case 6:
-		return "TTL expired"
-	case 7:
-		return "command not supported"
-	case 8:
-		return "address type not supported"
 	case 0xf0:
 		return "onion service descriptor not found"
 	case 0xf1:
@@ -222,7 +135,7 @@ func socks5Reply(code byte) string {
 	case 0xf7:
 		return "onion service introduction timed out"
 	}
-	return "unknown error"
+	return ""
 }
 
 // onionAuth lets net/smtp's PlainAuth log in to a .onion relay that
