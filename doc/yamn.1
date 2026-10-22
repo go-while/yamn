@@ -280,6 +280,32 @@ one anonymous message can't be fanned out to hundreds of addresses.  The limit
 is announced in the
 .B remailer-conf
 reply.
+.SS Mail to .onion addresses
+With
+.B mail.tor_socks
+set to a Tor SOCKS port, such as
+.BR 127.0.0.1:9050 ,
+yamn delivers mail for an address at a v3
+.I .onion
+domain through Tor to that onion service, on port 25.  This also works
+where outgoing port 25 is blocked, and next to
+.BR smtp_relay ,
+which then gets the other recipients.  A
+.I .onion
+MX host is used too, and
+.B smtp_relay
+may be one.  yamn never looks up a
+.I .onion
+name in DNS, and gives each delivery its own Tor circuit.  TLS is used if
+the onion service offers it, without checking the certificate, and is not
+required by
+.BR require_tls :
+Tor encrypts the connection, and the address is the service's key.
+Without
+.BR tor_socks ,
+mail to a
+.I .onion
+domain is refused.
 .SS Several pingers
 By default the keyring and statistics come from a single pinger
 .RB ( urls.pubring

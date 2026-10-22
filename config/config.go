@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -75,7 +77,8 @@ type Config struct {
 		SMTPRelay    string `yaml:"smtp_relay"`
 		SMTPPort     string `yaml:"smtp_port"`
 		MXRelay      bool   `yaml:"mx_relay"`
-		OnionRelay   bool   `yaml:"onion_relay"`
+		OnionRelay   bool   `yaml:"onion_relay"` // Ignored; .onion delivery needs TorSocks
+		TorSocks     string `yaml:"tor_socks"`   // Tor SOCKS host:port for .onion hosts
 		Sender       string `yaml:"sender"`
 		Username     string `yaml:"username"`
 		Password     string `yaml:"password"`
@@ -458,7 +461,8 @@ func (f *Flags) newConfig() *Config {
 	c.Mail.UseTLS = true
 	c.Mail.RequireTLS = false
 	c.Mail.MXRelay = true
-	c.Mail.OnionRelay = false // Ignored: .onion MX hosts can't be reached
+	c.Mail.OnionRelay = false // Ignored: .onion delivery is tor_socks
+	c.Mail.TorSocks = ""
 	c.Mail.Sender = ""
 	c.Mail.Username = ""
 	c.Mail.Password = ""
@@ -573,6 +577,12 @@ func (c *Config) validate() error {
 	check(s.Minrel >= 0 && s.Minrel <= 100, "stats.minrel must be 0 to 100, not %g", s.Minrel)
 	check(s.Relfinal >= 0 && s.Relfinal <= 100, "stats.rel_final must be 0 to 100, not %g", s.Relfinal)
 	check(c.Urls.KeyQuorum >= 1, "urls.key_quorum must be at least 1, not %d", c.Urls.KeyQuorum)
+	if c.Mail.TorSocks != "" {
+		host, port, err := net.SplitHostPort(c.Mail.TorSocks)
+		n, perr := strconv.Atoi(port)
+		check(err == nil && host != "" && perr == nil && n > 0 && n < 65536,
+			"mail.tor_socks must be host:port, e.g. 127.0.0.1:9050, not %q", c.Mail.TorSocks)
+	}
 	return errors.Join(errs...)
 }
 

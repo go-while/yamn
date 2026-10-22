@@ -120,9 +120,19 @@ mail:
     # server defers some recipients (4xx), the message stays in the pool for
     # them only: the pool file notes who already has it.
     mx_relay: true
-    # Ignored, with a warning if set: yamn connects to an MX directly and
-    # can't reach .onion hosts, so it always skips them. Mail to a .onion
-    # domain can't be delivered by MX and is dropped.
+    # Tor SOCKS port (host:port, e.g. 127.0.0.1:9050) for mail to .onion
+    # hosts. Mail to user@<v3 address>.onion then goes to that onion service
+    # on port 25, also when the rest goes to smtp_relay, and a .onion MX can
+    # be used. Port 25 doesn't need to be open, and .onion names are never
+    # looked up in DNS. Each delivery gets its own Tor circuit. TLS is
+    # optional there (also with require_tls) and its certificate isn't
+    # checked: Tor encrypts the connection and the address is the server's
+    # key. smtp_relay may be a .onion host too. Empty: .onion hosts are
+    # skipped and mail to a .onion domain is dropped. Not used by pipe or
+    # outfile.
+    tor_socks: ""
+    # Upstream's switch for .onion MX hosts. Ignored, with a warning if set
+    # without tor_socks: tor_socks alone decides.
     onion_relay: false
     # Envelope sender; empty means remailer.address
     sender: ""
