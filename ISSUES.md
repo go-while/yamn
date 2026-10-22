@@ -13,7 +13,7 @@ were found later. Each status line names the tests that came with the fix.
 |---|---|---|---|
 | [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | fixed (4f370cc) |
 | [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | fixed (6c0fb7e, f894bf0) |
-| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c; pinger quorum: de59490; remailer self-check: 5020c1b) |
+| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c; pinger quorum: de59490; remailer self-check: 5020c1b; key pinning: dca25ce) |
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | fixed (a4ad3ce) |
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | fixed (486f1e6) |
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
@@ -152,10 +152,24 @@ were found later. Each status line names the tests that came with the fix.
     its name with another address, or its address under another name. Tests:
     `TestCheckPublishedKeys`, `TestCheckPublishedKeysPingers`,
     `TestCheckPublishedKeysOncePerDay`.
-  - Open: pingers still collect keys by unsigned mail, so a forged key that
-    reaches every pinger is accepted; the remailer check above detects it,
-    for remailers that run this fork. Signed pinger output and key pinning
-    are planned with the go-echolot pinger (see its design).
+  - Done in `dca25ce` (branch `feat/03-key-pinning`): key pinning. yamn
+    remembers each remailer's key, name and address (`files.keypins`) and,
+    with `urls.key_pinning: hold` (the default), doesn't use a remailer
+    whose key changes while the pinned one has more than 72 hours left,
+    whose key is older, or whose name or address changes. Such a change is
+    accepted after 24 hours, two sightings and no return of the old key;
+    `--pin-accept`/`--pin-reject` decide at once, `--pins` lists. Same rules
+    as the go-echolot pinger. Tests: `TestPinFirstSeen`, `TestPinRotation`,
+    `TestPinHeld`, `TestPinHeldUsesPinnedKey`, `TestPinRelease`,
+    `TestPinWarn`, `TestPinAcceptReject`, `TestPinRetention`,
+    `TestPinStoreFile`, `TestImportPubringPinning`, `TestKeyPinning`,
+    `TestKeyPinningReject`, `TestKeyPinningOff`.
+  - Open: pingers still collect keys by unsigned mail. A forged key that
+    reaches every pinger before a client first sees the remailer is
+    trusted on first use, and one that stays published long enough while
+    the real remailer doesn't answer is accepted after the hold. Signed
+    pinger output and proof of possession come with the go-echolot pinger
+    (see its design).
 
 ### Y-04: Next hop not validated; header injection at middle remailers
 
