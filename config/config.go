@@ -50,7 +50,7 @@ type Config struct {
 		IDlog    string `yaml:"idlog"`
 		ChunkDB  string `yaml:"chunkdb"`
 		Logfile  string `yaml:"logfile"`
-		// Destination block list: one address or "@domain" per line
+		// Destination block list: one address, "@domain" or "@*.domain" per line
 		DestBlock string `yaml:"dest_block"`
 	} `yaml:"files"`
 	Urls struct {
@@ -67,7 +67,7 @@ type Config struct {
 		Pipe         string `yaml:"pipe"`
 		Outfile      bool   `yaml:"outfile"`
 		UseTLS       bool   `yaml:"usetls"`
-		RequireTLS   bool   `yaml:"require_tls"` // Refuse delivery without verified TLS
+		RequireTLS   bool   `yaml:"require_tls"` // Refuse delivery without verified TLS; implies UseTLS
 		SMTPRelay    string `yaml:"smtp_relay"`
 		SMTPPort     string `yaml:"smtp_port"`
 		MXRelay      bool   `yaml:"mx_relay"`
@@ -104,6 +104,8 @@ type Config struct {
 		Loop    int `yaml:"loop"`
 		// Delete excessively old messages from the outbound pool
 		MaxAge int `yaml:"max_age"`
+		// Delete rejected incoming mail after this many days
+		RejectedAge int `yaml:"rejected_age"`
 	} `yaml:"pool"`
 	Remailer struct {
 		Name        string `yaml:"name"`
@@ -452,7 +454,7 @@ func (f *Flags) newConfig() *Config {
 	c.Mail.UseTLS = true
 	c.Mail.RequireTLS = false
 	c.Mail.MXRelay = true
-	c.Mail.OnionRelay = false // Allow .onion addresses as MX relays
+	c.Mail.OnionRelay = false // Ignored: .onion MX hosts can't be reached
 	c.Mail.Sender = ""
 	c.Mail.Username = ""
 	c.Mail.Password = ""
@@ -477,6 +479,7 @@ func (f *Flags) newConfig() *Config {
 	c.Pool.MinSend = 5 // Only used in Binomial Mix Pools
 	c.Pool.Loop = 300
 	c.Pool.MaxAge = 28
+	c.Pool.RejectedAge = 7
 	c.Remailer.Name = "anon"
 	c.Remailer.Address = "mix@nowhere.invalid"
 	c.Remailer.Exit = false

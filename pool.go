@@ -240,8 +240,14 @@ func poolDelete(filename string) {
 // processMail reads the Remailer's Maildir and processes the content
 func processMail(secret *keymgr.Secring) (err error) {
 	dir := maildir.Dir(cfg.Files.Maildir)
-	// Get a list of Maildir keys from the directory
-	keys, err := dir.Unseen()
+	// Move new mail to cur, then read everything in cur.  If Unseen fails
+	// part way, the messages it already moved are still in cur; they'd
+	// never be read if only its result were used.  Processed mail is
+	// deleted or moved to .rejected, so cur holds nothing else.
+	if _, err = dir.Unseen(); err != nil {
+		log.Warnf("Reading %s/new: %s", cfg.Files.Maildir, err)
+	}
+	keys, err := dir.Keys()
 	if err != nil {
 		return
 	}
@@ -357,10 +363,10 @@ func rejectMail(dir maildir.Dir, key, reason string) {
 }
 
 // expireRejected deletes messages in the rejected Maildir folder that are
-// older than pool.max_age days.
+// older than pool.rejected_age days.
 func expireRejected() {
 	rejected := rejectedMaildir()
-	maxAge := time.Duration(cfg.Pool.MaxAge) * 24 * time.Hour
+	maxAge := time.Duration(cfg.Pool.RejectedAge) * 24 * time.Hour
 	deleted := 0
 	for _, sub := range []string{"cur", "new"} {
 		subdir := path.Join(string(rejected), sub)
@@ -382,7 +388,7 @@ func expireRejected() {
 		}
 	}
 	if deleted > 0 {
-		log.Infof("Deleted %d rejected mails older than %d days", deleted, cfg.Pool.MaxAge)
+		log.Infof("Deleted %d rejected mails older than %d days", deleted, cfg.Pool.RejectedAge)
 	}
 }
 

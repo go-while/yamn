@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"net/textproto"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -164,6 +166,27 @@ func headerAllowed(k string, extra map[string]bool) bool {
 	return exitHeaders[k] || extra[k] || strings.HasPrefix(k, "Content-")
 }
 
+// passedHeaders returns, sorted, the headers an exit passes on from a
+// message, for the remailer-conf reply.  Date and Message-Id are replaced by
+// the exit's own, and so is From unless custom_from is set.
+func passedHeaders() (names []string) {
+	set := extraAllowedHeaders()
+	for k := range exitHeaders {
+		set[k] = true
+	}
+	delete(set, "Date")
+	delete(set, "Message-Id")
+	if !cfg.Mail.CustomFrom {
+		delete(set, "From")
+	}
+	for k := range set {
+		names = append(names, k)
+	}
+	names = append(names, "Content-*")
+	slices.Sort(names)
+	return
+}
+
 // filterHeaders removes every header from h that isn't allowed to reach the
 // recipient.
 func filterHeaders(h mail.Header) {
@@ -179,7 +202,8 @@ func filterHeaders(h mail.Header) {
 
 // readDestBlock reads the destination block list.  Each line holds a full
 // address or "@domain"; blank lines and lines starting with "#" are ignored.
-// Entries are lower case.  A missing file is an empty list.
+// Entries are lower case.  A missing file is an empty list.  See destBlocked
+// for how they match.
 func readDestBlock(filename string) (map[string]bool, error) {
 	list := make(map[string]bool)
 	content, err := os.ReadFile(filename)
@@ -199,25 +223,45 @@ func readDestBlock(filename string) (map[string]bool, error) {
 	return list, nil
 }
 
-// destBlocked reports whether addy matches the block list, either as a full
-// address or by its domain.
+// destBlocked reports whether addy matches the block list: the full address,
+// "@domain" for exactly that domain, or "@*.domain" for any subdomain of it
+// ("@*.example.com" blocks "a.example.com" and "a.b.example.com", but not
+// "example.com").  Source routes ("%") and address literals never get here:
+// headToAddy drops them (see validRecipient).
 func destBlocked(list map[string]bool, addy string) bool {
 	addy = strings.ToLower(addy)
 	if list[addy] {
 		return true
 	}
-	if i := strings.LastIndex(addy, "@"); i >= 0 && list[addy[i:]] {
+	at := strings.LastIndex(addy, "@")
+	if at < 0 {
+		return false
+	}
+	domain := addy[at+1:]
+	if list["@"+domain] {
 		return true
 	}
-	return false
+	for d := domain; ; {
+		i := strings.Index(d, ".")
+		if i < 0 {
+			return false
+		}
+		d = d[i+1:]
+		if list["@*."+d] {
+			return true
+		}
+	}
 }
 
-// uniqueStrings returns s without duplicates, keeping the first occurrence.
-func uniqueStrings(s []string) (u []string) {
+// uniqueAddresses returns addresses without duplicates, keeping the first
+// spelling.  Case is ignored, as in the block list, so "Bob@Example.com"
+// and "bob@example.com" get one copy.
+func uniqueAddresses(addresses []string) (u []string) {
 	seen := make(map[string]bool)
-	for _, v := range s {
-		if !seen[v] {
-			seen[v] = true
+	for _, v := range addresses {
+		k := strings.ToLower(v)
+		if !seen[k] {
+			seen[k] = true
 			u = append(u, v)
 		}
 	}
@@ -286,6 +330,14 @@ func isNotFound(err error) bool {
 	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
 }
 
+// isOnion reports whether host is a Tor .onion name, in any case and with or
+// without the trailing dot.  Go's resolver doesn't look these up (RFC 7686)
+// and yamn connects directly, so it can't deliver to them.
+func isOnion(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	return host == "onion" || strings.HasSuffix(host, ".onion")
+}
+
 // DNS lookups for direct MX delivery.  Tests replace them.
 var (
 	lookupMX   = net.LookupMX
@@ -303,6 +355,12 @@ func mxLookup(email string) (relay string, err error) {
 		return
 	}
 	domain := emailParts.domain
+	if isOnion(domain) {
+		// The lookup would fail as if DNS were down, and the message
+		// would be retried until pool.max_age.
+		err = fmt.Errorf("%w: %s is a .onion domain, which can't be reached directly", errPermanent, domain)
+		return
+	}
 	mxRecords, err := lookupMX(domain)
 	if err != nil {
 		if !isNotFound(err) {
@@ -327,12 +385,9 @@ func mxLookup(email string) (relay string, err error) {
 			// A null MX (RFC 7505): the domain accepts no mail.
 			continue
 		}
-		if !cfg.Mail.OnionRelay {
-			// We don't want no onions!
-			if strings.HasSuffix(mx.Host, ".onion.") {
-				// Ignore the onion, find another.
-				continue
-			}
+		if isOnion(mx.Host) {
+			// Unreachable whatever onion_relay says; find another.
+			continue
 		}
 		relay = strings.TrimSuffix(mx.Host, ".")
 		break
@@ -370,7 +425,9 @@ func parseFrom(h mail.Header) []string {
 		// AddressList).
 		return []string{from[0].String()}
 	}
-	if len(from[0].Name) == 0 {
+	// A name with an "@" would show as an address in most mail programs
+	// ("security@bank.example" <remailer@exit>), so it isn't used.
+	if len(from[0].Name) == 0 || strings.Contains(from[0].Name, "@") {
 		return defaultFrom
 	}
 	return []string{(&mail.Address{
@@ -450,14 +507,14 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 	delete(msg.Header, "Yamn-Pooled-Date")
 
 	// Add some required headers to the message.
-	msg.Header["Date"] = []string{time.Now().Format(rfc5322date)}
+	msg.Header["Date"] = []string{time.Now().UTC().Format(rfc5322date)}
 	msg.Header["Message-Id"] = []string{messageID()}
 	msg.Header["From"] = parseFrom(msg.Header)
 	sendTo := headToAddy(msg.Header, "To")
 	sendTo = append(sendTo, headToAddy(msg.Header, "Cc")...)
 	// Bcc recipients get the message, but the Bcc header itself is removed
 	// by filterHeaders below so other recipients don't see them.
-	sendTo = uniqueStrings(append(sendTo, headToAddy(msg.Header, "Bcc")...))
+	sendTo = uniqueAddresses(append(sendTo, headToAddy(msg.Header, "Bcc")...))
 	filterHeaders(msg.Header)
 	if len(sendTo) == 0 {
 		err = fmt.Errorf("%s: No email recipients found", filename)
@@ -515,7 +572,7 @@ func mailBytes(payload []byte, sendTo []string) (err error) {
 			return
 		}
 		log.Tracef("Wrote output to %s", filename)
-	} else if cfg.Mail.Pipe != "" {
+	} else if strings.TrimSpace(cfg.Mail.Pipe) != "" {
 		err = execSend(payload, cfg.Mail.Pipe, sendTo)
 		if err != nil {
 			log.Warn("Email pipe failed")
@@ -566,38 +623,36 @@ func pipeReadsHeaders(execCmd string) bool {
 // keep working that way; nagOperator warns that the block list and Bcc
 // don't apply then.
 func execSend(payload []byte, execCmd string, sendTo []string) (err error) {
-	sendmail := new(exec.Cmd)
-	sendmail.Args = strings.Fields(execCmd)
-	sendmail.Path = sendmail.Args[0]
+	args := strings.Fields(execCmd)
+	if len(args) == 0 {
+		return errors.New("mail.pipe has no command")
+	}
 	if !pipeReadsHeaders(execCmd) {
-		if sendmail.Args[len(sendmail.Args)-1] != "--" {
-			sendmail.Args = append(sendmail.Args, "--")
+		if args[len(args)-1] != "--" {
+			args = append(args, "--")
 		}
-		sendmail.Args = append(sendmail.Args, sendTo...)
+		args = append(args, sendTo...)
 	}
-
-	stdin, err := sendmail.StdinPipe()
-	if err != nil {
-		log.Errorf("%s: %s", execCmd, err)
-		return
-	}
-	defer stdin.Close()
+	// A command that hangs would stall the outbound pool, so it's killed
+	// after pipeTimeout.  The message stays in the pool and is tried again.
+	ctx, cancel := context.WithTimeout(context.Background(), pipeTimeout)
+	defer cancel()
+	sendmail := exec.CommandContext(ctx, args[0], args[1:]...)
+	sendmail.Stdin = bytes.NewReader(payload)
 	sendmail.Stdout = os.Stdout
 	sendmail.Stderr = os.Stderr
-	err = sendmail.Start()
-	if err != nil {
-		log.Errorf("%s: %s", execCmd, err)
-		return
+	err = sendmail.Run()
+	if ctx.Err() != nil {
+		err = fmt.Errorf("killed after %s: %w", pipeTimeout, ctx.Err())
 	}
-	stdin.Write(payload)
-	stdin.Close()
-	err = sendmail.Wait()
 	if err != nil {
 		log.Errorf("%s: %s", execCmd, err)
-		return
 	}
 	return
 }
+
+// pipeTimeout is how long the mail.pipe command may run.  Tests shorten it.
+var pipeTimeout = 5 * time.Minute
 
 // isLoopbackHost reports whether host is the local machine, where mail
 // travels without leaving the host and plaintext SMTP is acceptable.
@@ -703,9 +758,17 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		)
 		return
 	}
-	// Test if the remote MTA supports STARTTLS
+	// net/smtp would say "EHLO localhost", which many servers count
+	// against the sender.
+	if err = client.Hello(mailDomain()); err != nil {
+		log.Warnf("SMTP EHLO Error: Server=%s, Error=%s", serverAddr, err)
+		return
+	}
+	// Test if the remote MTA supports STARTTLS.  require_tls implies
+	// usetls: without STARTTLS, every delivery would fail.
+	useTLS := cfg.Mail.UseTLS || cfg.Mail.RequireTLS
 	ok, _ := client.Extension("STARTTLS")
-	if ok && cfg.Mail.UseTLS {
+	if ok && useTLS {
 		if err = client.StartTLS(smtpTLSConfig(relay, directMX)); err != nil {
 			log.Warnf(
 				"Error performing STARTTLS: Server=%s, Error=%s",
@@ -718,7 +781,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		err = fmt.Errorf("%s: no TLS available and require_tls is set", serverAddr)
 		log.Warn(err)
 		return
-	} else if !ok && cfg.Mail.UseTLS && !directMX && !isLoopbackHost(relay) {
+	} else if !ok && useTLS && !directMX && !isLoopbackHost(relay) {
 		// The configured relay is expected to offer STARTTLS.  If it
 		// doesn't, it's misconfigured or STARTTLS was stripped in
 		// transit, so don't fall back to plaintext.

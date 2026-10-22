@@ -86,6 +86,7 @@ type fakeSMTP struct {
 	usedTLS   bool
 	usedAuth  bool
 	delivered bool
+	helo      string   // name given with EHLO or HELO
 	rcpts     []string // RCPT TO addresses
 	data      []byte   // message received with DATA
 }
@@ -136,6 +137,9 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 		cmd := strings.ToUpper(line)
 		switch {
 		case strings.HasPrefix(cmd, "EHLO"), strings.HasPrefix(cmd, "HELO"):
+			s.mu.Lock()
+			s.helo = strings.TrimSpace(line[4:])
+			s.mu.Unlock()
 			lines := []string{"fake"}
 			if s.tlsConf != nil && !inTLS {
 				lines = append(lines, "STARTTLS")
@@ -287,6 +291,52 @@ func TestSmtpSendTLS(t *testing.T) {
 				t.Errorf("sent credentials = %v, want %v", usedAuth, tt.wantAuth)
 			}
 		})
+	}
+}
+
+// TestSmtpSendRequireTLSWithoutUseTLS checks that require_tls uses STARTTLS
+// even with usetls off, instead of failing every delivery.
+func TestSmtpSendRequireTLSWithoutUseTLS(t *testing.T) {
+	setupTestConfig(t)
+	mxCert, _ := newTestCert(t, "mx.test")
+	trusted := x509.NewCertPool()
+	trusted.AddCert(mxCert.Leaf)
+	oldRoots := smtpRootCAs
+	smtpRootCAs = trusted
+	t.Cleanup(func() { smtpRootCAs = oldRoots })
+	cfg.Mail.UseTLS = false
+	cfg.Mail.RequireTLS = true
+	server := newFakeSMTP(t, &mxCert, false, "")
+	if err := smtpSend("mx.test", "25", true, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"}); err != nil {
+		t.Fatalf("smtpSend failed: %s", err)
+	}
+	if usedTLS, _, delivered := server.result(); !usedTLS || !delivered {
+		t.Errorf("used TLS = %v, delivered = %v, want both", usedTLS, delivered)
+	}
+}
+
+// TestSmtpSendHello checks the EHLO name: message_domain, else the domain
+// of remailer.address, never net/smtp's "localhost".
+func TestSmtpSendHello(t *testing.T) {
+	for _, tt := range []struct{ messageDomain, address, want string }{
+		{"", "mix@remailer.example", "remailer.example"},
+		{"ids.example", "mix@remailer.example", "ids.example"},
+		{"", "no-domain", "yamn.invalid"},
+	} {
+		setupTestConfig(t)
+		cfg.Mail.UseTLS = false
+		cfg.Mail.MessageDomain = tt.messageDomain
+		cfg.Remailer.Address = tt.address
+		server := newFakeSMTP(t, nil, false, "")
+		if err := smtpSend("localhost", "25", false, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"}); err != nil {
+			t.Fatalf("smtpSend failed: %s", err)
+		}
+		server.mu.Lock()
+		helo := server.helo
+		server.mu.Unlock()
+		if helo != tt.want {
+			t.Errorf("message_domain %q, address %q: EHLO %q, want %q", tt.messageDomain, tt.address, helo, tt.want)
+		}
 	}
 }
 

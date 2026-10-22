@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeSendmail writes a script that records its arguments (one per line)
@@ -103,5 +104,29 @@ func TestPipeReadsHeaders(t *testing.T) {
 		if got := pipeReadsHeaders(cmd); got != want {
 			t.Errorf("pipeReadsHeaders(%q) = %v, want %v", cmd, got, want)
 		}
+	}
+}
+
+// TestExecSendTimeout checks that a pipe command that hangs is killed, and
+// that a command of only spaces is an error, not a crash.
+func TestExecSendTimeout(t *testing.T) {
+	setupTestConfig(t)
+	oldTimeout := pipeTimeout
+	pipeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { pipeTimeout = oldTimeout })
+	script := filepath.Join(t.TempDir(), "hang")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 30\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	err := execSend([]byte("Subject: x\n\nx\n"), script, []string{"a@example.invalid"})
+	if err == nil || !strings.Contains(err.Error(), "killed after") {
+		t.Errorf("Expected a timeout error, got %v", err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("execSend took %s", d)
+	}
+	if err := execSend([]byte("x"), "   ", nil); err == nil {
+		t.Error("An empty command should be an error")
 	}
 }

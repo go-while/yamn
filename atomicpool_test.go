@@ -131,3 +131,34 @@ func TestProcessMailKeepsMailOnPoolError(t *testing.T) {
 		t.Fatalf("the message should be pooled on the next run, got %d pool files", len(delivered))
 	}
 }
+
+// TestProcessMailReadsCur checks that mail already moved to cur, e.g. by an
+// earlier run whose move from new failed part way, is still processed.
+func TestProcessMailReadsCur(t *testing.T) {
+	_, exit := setupRoundTrip(t)
+	pool := actAs(t, exit, true)
+	cfg.Files.Maildir = filepath.Join(t.TempDir(), "Maildir")
+	dir := maildir.Dir(cfg.Files.Maildir)
+	if err := dir.Create(); err != nil {
+		t.Fatal(err)
+	}
+	packet := new(bytes.Buffer)
+	packet.WriteString("To: " + exit.address + "\nSubject: yamn\n\n")
+	armor(packet, encodeTestMsg([]byte("Hello from yamn"), exit))
+	deliverMail(t, dir, packet.Bytes())
+	// Move it to cur, as an interrupted run would have.
+	if keys, err := dir.Unseen(); err != nil || len(keys) != 1 {
+		t.Fatalf("Unseen: %v, %v", keys, err)
+	}
+
+	if err := processMail(exit.secring); err != nil {
+		t.Fatalf("processMail failed: %s", err)
+	}
+	if keys, _ := dir.Keys(); len(keys) != 0 {
+		t.Errorf("Maildir/cur should be empty, has %d messages", len(keys))
+	}
+	delivered := poolFiles(t, pool, "m")
+	if len(delivered) != 1 || !bytes.HasSuffix(delivered[0], []byte("Hello from yamn")) {
+		t.Fatalf("the message in cur should be pooled, got %d pool files", len(delivered))
+	}
+}

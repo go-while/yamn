@@ -97,3 +97,42 @@ func TestRemailerConfMaxRecipients(t *testing.T) {
 		}
 	}
 }
+
+// TestRemailerConfHeaders checks that an exit's remailer-conf lists the
+// headers it passes on, and a middleman's lists none.
+func TestRemailerConfHeaders(t *testing.T) {
+	setupTestConfig(t)
+	cfg.Mail.MXRelay = false
+	cfg.Mail.SMTPRelay = "localhost"
+	cfg.Mail.AllowHeaders = []string{"x-face"}
+	oldLimiter := fooReplies
+	t.Cleanup(func() { fooReplies = oldLimiter })
+	for _, exit := range []bool{true, false} {
+		cfg.Remailer.Exit = exit
+		fooReplies = newReplyLimiter()
+		cfg.Files.Pooldir = t.TempDir()
+		server := newFakeSMTP(t, nil, false, "")
+		if err := remailerFoo("remailer-conf", "someone@example.invalid"); err != nil {
+			t.Fatalf("remailer-conf failed: %s", err)
+		}
+		poolOutboundSend()
+		server.mu.Lock()
+		data := string(server.data)
+		server.mu.Unlock()
+		listed := strings.Contains(data, "will be passed on")
+		if listed != exit {
+			t.Errorf("exit %v: header list shown = %v:\n%s", exit, listed, data)
+		}
+		if !exit {
+			continue
+		}
+		for _, h := range []string{"   Subject\n", "   X-Face\n", "   Content-*\n"} {
+			if !strings.Contains(data, h) {
+				t.Errorf("header list lacks %q:\n%s", h, data)
+			}
+		}
+		if strings.Contains(data, "   From\n") || strings.Contains(data, "   Date\n") {
+			t.Errorf("From and Date are replaced, not passed on:\n%s", data)
+		}
+	}
+}

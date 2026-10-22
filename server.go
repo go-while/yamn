@@ -269,6 +269,10 @@ func nagOperator() {
 			cfg.Mail.MessageDomain,
 		)
 	}
+	if cfg.Mail.OnionRelay {
+		log.Warn("mail.onion_relay is ignored: yamn connects to an MX " +
+			"directly and can't reach .onion hosts, so it always skips them.")
+	}
 	if pipeReadsHeaders(cfg.Mail.Pipe) {
 		log.Warnf(
 			"mail.pipe %q reads the recipients from the headers (-t), "+
@@ -765,7 +769,7 @@ func remailerFoo(subject, from string) (err error) {
 	m := quickmail.NewMessage()
 	m.Set("From", cfg.Remailer.Address)
 	m.Set("To", sender)
-	m.Set("Date", time.Now().Format(rfc5322date))
+	m.Set("Date", time.Now().UTC().Format(rfc5322date))
 	m.Set("Message-ID", messageID())
 	m.Set("MIME-Version", "1.0")
 	m.Set("Content-Type", "text/plain; charset=UTF-8")
@@ -794,7 +798,12 @@ func remailerFoo(subject, from string) (err error) {
 		} else {
 			m.Text("Maximum recipients: unlimited\n")
 		}
-		m.Text("The following header lines will be filtered:\n")
+		if cfg.Remailer.Exit {
+			m.Text("The following header lines will be passed on, all others are filtered:\n")
+			for _, h := range passedHeaders() {
+				m.Text("   " + h + "\n")
+			}
+		}
 		m.Text(
 			fmt.Sprintf("\n$remailer{\"%s\"} = \"<%s>",
 				cfg.Remailer.Name, cfg.Remailer.Address))

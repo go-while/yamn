@@ -45,7 +45,7 @@ files:
     pooldir: pool
     # Maildir the remailer reads incoming mail from. Mail that isn't a yamn
     # message is moved to its .rejected subfolder and deleted there after
-    # pool.max_age days.
+    # pool.rejected_age days.
     maildir: Maildir
     # Database of seen packet IDs (replay protection)
     idlog: idlog
@@ -55,9 +55,11 @@ files:
     # its owner only (0600).
     logfile: yamn.log
     # Destination block list: addresses that must not receive mail from this
-    # exit, nor replies to remailer-* requests. One address or "@domain" per
-    # line, "#" starts a comment. Read for every message, so edits apply
-    # immediately. A missing file blocks nobody.
+    # exit, nor replies to remailer-* requests. One address, "@domain" or
+    # "@*.domain" per line, "#" starts a comment. "@example.com" blocks only
+    # that domain, "@*.example.com" only its subdomains (list both to block
+    # all). Read for every message, so edits apply immediately. A missing
+    # file blocks nobody.
     dest_block: dest.blk
 
 # Where yamn downloads the public keyring and stats from. A download only
@@ -93,7 +95,8 @@ mail:
     # Overrides sendmail and the built-in SMTP client. The recipients are
     # added as arguments after "--". With -t (which upstream yamn needs),
     # no recipients are passed and the command takes them from the headers;
-    # the block list and Bcc then don't work.
+    # the block list and Bcc then don't work. A command still running after
+    # 5 minutes is killed, and the message is tried again later.
     pipe: ""
     # Write outbound mail to files in the pool instead of sending it (testing).
     # Overrides all other delivery options.
@@ -103,7 +106,7 @@ mail:
     usetls: true
     # Require verified TLS for every delivery, including directly to a
     # recipient's MX (which otherwise uses opportunistic TLS). Mail that can't
-    # be delivered this way stays in the pool.
+    # be delivered this way stays in the pool. Implies usetls.
     require_tls: false
     # SMTP relay and port
     smtp_relay: fleegle.mixmin.net
@@ -113,7 +116,9 @@ mail:
     # with a null MX, or that doesn't exist, can't receive mail. If DNS fails,
     # the message stays in the pool.
     mx_relay: true
-    # Allow .onion hosts as MX
+    # Ignored, with a warning if set: yamn connects to an MX directly and
+    # can't reach .onion hosts, so it always skips them. Mail to a .onion
+    # domain can't be delivered by MX and is dropped.
     onion_relay: false
     # Envelope sender; empty means remailer.address
     sender: ""
@@ -123,10 +128,12 @@ mail:
     # From name and address on mail delivered by an exit
     outbound_name: Anonymous Remailer
     outbound_addy: remailer@domain.invalid
-    # Let senders choose their own From address
+    # Let senders choose their own From address. Without it, mail goes out
+    # from outbound_addy with the sender's name, or outbound_name if there's
+    # none or it has an "@" in it (it would look like an address).
     custom_from: false
-    # Domain in the Message-ID of delivered mail; empty means the domain of
-    # remailer.address
+    # Domain in the Message-ID of delivered mail, and the name yamn gives in
+    # SMTP EHLO; empty means the domain of remailer.address
     message_domain: ""
     # Headers an exit passes through besides its built-in list (To, Cc,
     # Subject, Reply-To, In-Reply-To, References, Newsgroups, Followup-To,
@@ -174,14 +181,18 @@ pool:
     # to 4 files are sent at the same time, so a slow mail server doesn't
     # hold up the others.
     loop: 300
-    # Delete outbound messages older than this many days; also how long
-    # rejected incoming mail is kept. Messages are retried until then after
-    # a temporary failure (4xx reply, network or DNS error). A permanent
-    # (5xx) rejection by the recipient's own mail server deletes the message
-    # at once; recipients rejected with 5xx are skipped and the others still
-    # get it. Through smtp_relay, only an address error (5.1.x) counts as
-    # permanent; other 5xx replies there (e.g. relaying denied) are retried.
+    # Delete outbound messages older than this many days. Messages are
+    # retried until then after a temporary failure (4xx reply, network or DNS
+    # error). A permanent (5xx) rejection by the recipient's own mail server
+    # deletes the message at once; recipients rejected with 5xx are skipped
+    # and the others still get it. Through smtp_relay, only an address error
+    # (5.1.x) counts as permanent; other 5xx replies there (e.g. relaying
+    # denied) are retried.
     max_age: 28
+    # Delete mail in Maildir/.rejected (incoming mail that isn't a yamn
+    # message) older than this many days. Bounces there can quote messages
+    # this exit delivered, so they aren't kept long.
+    rejected_age: 7
 
 remailer:
     # Short name in keyrings and stats, 2 to 12 letters and digits
