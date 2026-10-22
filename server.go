@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/mail"
 	"os"
 	"path"
@@ -279,9 +280,20 @@ func nagOperator() {
 			config.DefaultSMTPRelay,
 		)
 	}
-	if cfg.Mail.OnionRelay {
-		log.Warn("mail.onion_relay is ignored: yamn connects to an MX " +
-			"directly and can't reach .onion hosts, so it always skips them.")
+	switch {
+	case cfg.Mail.TorSocks == "" && cfg.Mail.OnionRelay:
+		log.Warn("mail.onion_relay is ignored: .onion hosts can only be " +
+			"reached through Tor. Set mail.tor_socks (e.g. 127.0.0.1:9050) " +
+			"to deliver to them.")
+	case cfg.Mail.TorSocks == "":
+	case cfg.Mail.Outfile || strings.TrimSpace(cfg.Mail.Pipe) != "":
+		log.Warn("mail.tor_socks has no effect with mail.pipe or mail.outfile.")
+	default:
+		if host, _, err := net.SplitHostPort(cfg.Mail.TorSocks); err == nil && !isLoopbackHost(host) {
+			log.Warnf("mail.tor_socks %s isn't on this machine: the .onion "+
+				"addresses this remailer mails to cross the network "+
+				"unencrypted on the way to it.", cfg.Mail.TorSocks)
+		}
 	}
 	if pipeReadsHeaders(cfg.Mail.Pipe) {
 		log.Warnf(

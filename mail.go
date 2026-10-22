@@ -331,8 +331,8 @@ func isNotFound(err error) bool {
 }
 
 // isOnion reports whether host is a Tor .onion name, in any case and with or
-// without the trailing dot.  Go's resolver doesn't look these up (RFC 7686)
-// and yamn connects directly, so it can't deliver to them.
+// without the trailing dot.  Go's resolver doesn't look these up (RFC 7686);
+// yamn reaches them only through mail.tor_socks.
 func isOnion(host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	return host == "onion" || strings.HasSuffix(host, ".onion")
@@ -356,9 +356,18 @@ func mxLookup(email string) (relay string, err error) {
 	}
 	domain := emailParts.domain
 	if isOnion(domain) {
-		// The lookup would fail as if DNS were down, and the message
-		// would be retried until pool.max_age.
-		err = fmt.Errorf("%w: %s is a .onion domain, which can't be reached directly", errPermanent, domain)
+		// Never looked up in DNS: that would fail as if DNS were down
+		// (the message would be retried until pool.max_age), and tell
+		// the resolver which onion service gets mail.
+		switch {
+		case !onionDelivery():
+			err = fmt.Errorf("%w: %s is a .onion domain, which can't be reached without mail.tor_socks", errPermanent, domain)
+		case !validOnion(domain):
+			err = fmt.Errorf("%w: %s isn't a valid v3 .onion address", errPermanent, domain)
+		default:
+			// The onion service is its own mail server.
+			relay = strings.ToLower(strings.TrimSuffix(domain, "."))
+		}
 		return
 	}
 	mxRecords, err := lookupMX(domain)
@@ -385,8 +394,8 @@ func mxLookup(email string) (relay string, err error) {
 			// A null MX (RFC 7505): the domain accepts no mail.
 			continue
 		}
-		if isOnion(mx.Host) {
-			// Unreachable whatever onion_relay says; find another.
+		if isOnion(mx.Host) && !(onionDelivery() && validOnion(mx.Host)) {
+			// Unreachable without Tor; find another.
 			continue
 		}
 		relay = strings.TrimSuffix(mx.Host, ".")
@@ -394,7 +403,7 @@ func mxLookup(email string) (relay string, err error) {
 	}
 	if relay == "" {
 		// Having MX records rules out the implicit MX.
-		err = fmt.Errorf("%w: no usable MX for %s (null MX, or .onion only)", errPermanent, domain)
+		err = fmt.Errorf("%w: no usable MX for %s (null MX, or .onion without mail.tor_socks)", errPermanent, domain)
 		return
 	}
 	log.Tracef(
@@ -627,7 +636,7 @@ func mailRecipients(payload []byte, sendTo []string) (done []string, err error) 
 		}
 		done = sendTo
 	case usesSMTPRelay():
-		done, err = smtpSend(cfg.Mail.SMTPRelay, cfg.Mail.SMTPPort, false, payload, sendTo)
+		done, err = relaySend(payload, sendTo)
 	default:
 		done, err = mxSend(payload, sendTo)
 	}
@@ -641,6 +650,44 @@ func usesSMTPRelay() bool {
 		return false
 	}
 	return cfg.Mail.Sendmail || !cfg.Mail.MXRelay
+}
+
+// relaySend mails payload to sendTo through smtp_relay.  With
+// mail.tor_socks, recipients at .onion domains go straight to their onion
+// service instead, as the relay most likely can't reach them.  It returns
+// like mailRecipients.
+func relaySend(payload []byte, sendTo []string) (done []string, err error) {
+	var viaRelay, onion []string
+	for _, a := range sendTo {
+		if onionDelivery() && isOnion(a[strings.LastIndex(a, "@")+1:]) {
+			onion = append(onion, a)
+		} else {
+			viaRelay = append(viaRelay, a)
+		}
+	}
+	if len(onion) == 0 {
+		return smtpSend(cfg.Mail.SMTPRelay, cfg.Mail.SMTPPort, false, payload, sendTo)
+	}
+	var relayErr error
+	if len(viaRelay) > 0 {
+		done, relayErr = smtpSend(cfg.Mail.SMTPRelay, cfg.Mail.SMTPPort, false, payload, viaRelay)
+	}
+	d, onionErr := mxSend(payload, onion)
+	done = append(done, d...)
+	temporary := func(e error) bool { return e != nil && !errors.Is(e, errPermanent) }
+	switch {
+	case temporary(relayErr) || temporary(onionErr):
+		// Not wrapped: some recipients still need a try.
+		err = fmt.Errorf("%d of %d recipients still to do: %v",
+			len(sendTo)-len(done), len(sendTo), errors.Join(relayErr, onionErr))
+	case len(viaRelay) == 0:
+		err = onionErr
+	case relayErr != nil && onionErr != nil:
+		err = fmt.Errorf("%w: no recipient got the message: %w", errPermanent, errors.Join(relayErr, onionErr))
+	case relayErr != nil || onionErr != nil:
+		log.Infof("Delivered, but some recipients were refused: %s", errors.Join(relayErr, onionErr))
+	}
+	return
 }
 
 // mxSend delivers payload to the MX of each recipient domain in turn, with
@@ -797,13 +844,22 @@ var smtpDial = func(network, address string) (net.Conn, error) {
 // it.  Direct deliveries to a recipient's MX use opportunistic TLS (any
 // certificate is accepted, as most MTAs do) unless require_tls is set.  A
 // relay on the local machine is not verified either, as its traffic never
-// leaves the host.
+// leaves the host, nor is a .onion host (see secureTransport).
 func smtpTLSConfig(host string, directMX bool) *tls.Config {
 	return &tls.Config{
 		ServerName:         host,
 		RootCAs:            smtpRootCAs,
-		InsecureSkipVerify: isLoopbackHost(host) || (directMX && !cfg.Mail.RequireTLS),
+		InsecureSkipVerify: secureTransport(host) || (directMX && !cfg.Mail.RequireTLS),
 	}
+}
+
+// secureTransport reports whether the connection to host is protected
+// without TLS: on the local machine, or to a .onion host, where Tor
+// encrypts the connection end to end and the address is the service's
+// public key.  Onion mail servers mostly have self-signed certificates, so
+// TLS adds nothing there.
+func secureTransport(host string) bool {
+	return isLoopbackHost(host) || isOnion(host)
 }
 
 // smtpSend delivers payload to sendTo through the SMTP server at relay:port.
@@ -818,7 +874,16 @@ func smtpTLSConfig(host string, directMX bool) *tls.Config {
 func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string) (done []string, err error) {
 	serverAddr := net.JoinHostPort(relay, port)
 
-	conn, err := smtpDial("tcp", serverAddr)
+	var conn net.Conn
+	switch {
+	case !isOnion(relay):
+		conn, err = smtpDial("tcp", serverAddr)
+	case onionDelivery():
+		conn, err = onionDial(serverAddr)
+	default:
+		// Only smtp_relay can get here; mxLookup skips .onion hosts.
+		err = errors.New("a .onion host needs mail.tor_socks")
+	}
 	if err != nil {
 		log.Warnf("Dial Error: Server=%s, Error=%s", serverAddr, err)
 		return
@@ -860,6 +925,8 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 			)
 			return
 		}
+	} else if !ok && isOnion(relay) {
+		log.Tracef("%s does not offer STARTTLS. Tor encrypts the connection.", serverAddr)
 	} else if cfg.Mail.RequireTLS {
 		err = fmt.Errorf("%s: no TLS available and require_tls is set", serverAddr)
 		log.Warn(err)
@@ -885,6 +952,9 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 			cfg.Mail.Password,
 			cfg.Mail.SMTPRelay,
 		)
+		if isOnion(relay) {
+			auth = onionAuth{auth}
+		}
 		if err = client.Auth(auth); err != nil {
 			log.Warnf("Auth Error:  Server=%s, Error=%s", serverAddr, err)
 			return

@@ -92,6 +92,11 @@ func TestValidate(t *testing.T) {
 		"stats:\n    minrel: -1\n",
 		"stats:\n    rel_final: 100.5\n",
 		"urls:\n    key_quorum: 0\n",
+		"mail:\n    tor_socks: \"9050\"\n",
+		"mail:\n    tor_socks: localhost\n",
+		"mail:\n    tor_socks: \":9050\"\n",
+		"mail:\n    tor_socks: 127.0.0.1:99999\n",
+		"mail:\n    tor_socks: 127.0.0.1:tor\n",
 	} {
 		cfgFile := filepath.Join(t.TempDir(), "yamn.yml")
 		if err := os.WriteFile(cfgFile, []byte(bad), 0600); err != nil {
