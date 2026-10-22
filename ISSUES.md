@@ -978,16 +978,18 @@ not part of the repository yet and come with the fixes.
 - **Fix:** an option for Tor's SOCKS port, and delivery to `.onion` hosts
   through it, without DNS.
 - **Found:** discussion after Y-50.
-- **Status:** fixed in `436880c` (branch `fix/54-tor-onion`). New
-  `mail.tor_socks`: `.onion` recipients, MX hosts and `smtp_relay` go
-  through Tor's SOCKS5 port, never through DNS, with a random login per
+- **Status:** fixed in `436880c` and `ab102ec` (branch `fix/54-tor-onion`).
+  New `mail.tor_socks`: `.onion` recipients, MX hosts and `smtp_relay` go
+  through Tor's SOCKS5 port (`golang.org/x/net/proxy`, with Tor's onion
+  reply codes described), never through DNS, with a random login per
   delivery for its own circuit; v3 addresses are checked (checksum);
   `.onion` counts as secure for TLS. `onion_relay` stays ignored, its warning
   points to `tor_socks`. Tested live through the Tor network. Tests:
   `TestValidOnion`, `TestTorDial`, `TestTorDialErrors`,
   `TestOnionRecipient`, `TestOnionRecipientWithoutTor`, `TestOnionMX`,
   `TestOnionViaRelay`, `TestOnionViaRelayPartial`, `TestOnionTLS`,
-  `TestOnionRelayWithoutTor`, `TestNagTor`, `TestValidate`.
+  `TestOnionRelayWithoutTor`, `TestNagTor`, `TestDescribeTorError`,
+  `TestValidate`.
 
 ## Info
 
