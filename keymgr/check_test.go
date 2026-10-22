@@ -41,9 +41,12 @@ func TestCheckLikeParser(t *testing.T) {
 	if err := CheckPubring(ring); err != nil {
 		t.Fatalf("valid pubring rejected: %s", err)
 	}
+	// A line over 64 KB is skipped by the parser (Y-55), so the key before
+	// it is still usable.
+	if err := CheckPubring(append(testPubring(valid), []byte(strings.Repeat("x", 70000)+"\n")...)); err != nil {
+		t.Errorf("pubring with a line over 64 KB rejected: %s", err)
+	}
 	for name, b := range map[string][]byte{
-		// A complete block followed by a line the scanner can't read.
-		"line over 64 KB": append(testPubring(valid), []byte(strings.Repeat("x", 70000)+"\n")...),
 		// The only key fails the keyid check.
 		"keyid mismatch": bytes.Replace(ring, []byte(hex.EncodeToString(valid.pk())),
 			[]byte(hex.EncodeToString(expired.pk())), 1),

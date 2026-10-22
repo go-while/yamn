@@ -1,7 +1,6 @@
 package keymgr
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/hex"
 	"fmt"
@@ -241,7 +240,8 @@ func (p *Pubring) ImportStats() (err error) {
 // the rows of the stats table.  Malformed rows are reported through warn
 // and skipped.  name identifies the file in errors.
 func readStats(r io.Reader, name string, warn warnFunc) (generated time.Time, rows []statsRow, err error) {
-	scanner := bufio.NewScanner(r)
+	scanner, skipped := lineScanner(r)
+	defer warnSkipped(warn, name, skipped)
 	parsePhase := 0
 	/* Stat phases are:
 	0 Want Generated timestamp
@@ -358,13 +358,14 @@ func Headers(filename string) (headers []string, err error) {
 		return
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
+	scanner, _ := lineScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if len(strings.Split(line, " ")) == 7 {
 			headers = append(headers, line)
 		}
 	}
+	err = scanner.Err()
 	return
 }
 
@@ -404,7 +405,8 @@ func (p *Pubring) ImportPubring() (err error) {
 // valid at now (and expired ones too if useExpired is set).  Malformed or
 // invalid keys are reported through warn and skipped.
 func readPubring(r io.Reader, now time.Time, useExpired bool, warn warnFunc) (rems []Remailer, err error) {
-	scanner := bufio.NewScanner(r)
+	scanner, skipped := lineScanner(r)
+	defer warnSkipped(warn, "keyring", skipped)
 	var rem *Remailer
 	key_phase := 0
 	/* Key phases are:
