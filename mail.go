@@ -224,9 +224,10 @@ func readDestBlock(filename string) (map[string]bool, error) {
 }
 
 // destBlocked reports whether addy matches the block list: the full address,
-// or "@domain" for its domain or any parent domain, so "@example.com" also
-// blocks "sub.example.com".  Source routes ("%") and address literals never
-// get here: headToAddy drops them (see validRecipient).
+// "@domain" for exactly that domain, or "@*.domain" for any subdomain of it
+// ("@*.example.com" blocks "a.example.com" and "a.b.example.com", but not
+// "example.com").  Source routes ("%") and address literals never get here:
+// headToAddy drops them (see validRecipient).
 func destBlocked(list map[string]bool, addy string) bool {
 	addy = strings.ToLower(addy)
 	if list[addy] {
@@ -236,17 +237,20 @@ func destBlocked(list map[string]bool, addy string) bool {
 	if at < 0 {
 		return false
 	}
-	for d := addy[at+1:]; d != ""; {
-		if list["@"+d] {
-			return true
-		}
+	domain := addy[at+1:]
+	if list["@"+domain] {
+		return true
+	}
+	for d := domain; ; {
 		i := strings.Index(d, ".")
 		if i < 0 {
-			break
+			return false
 		}
 		d = d[i+1:]
+		if list["@*."+d] {
+			return true
+		}
 	}
-	return false
 }
 
 // uniqueAddresses returns addresses without duplicates, keeping the first

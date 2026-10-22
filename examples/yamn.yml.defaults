@@ -55,10 +55,11 @@ files:
     # its owner only (0600).
     logfile: yamn.log
     # Destination block list: addresses that must not receive mail from this
-    # exit, nor replies to remailer-* requests. One address or "@domain" per
-    # line, "#" starts a comment; "@example.com" also blocks its subdomains.
-    # Read for every message, so edits apply immediately. A missing file
-    # blocks nobody.
+    # exit, nor replies to remailer-* requests. One address, "@domain" or
+    # "@*.domain" per line, "#" starts a comment. "@example.com" blocks only
+    # that domain, "@*.example.com" only its subdomains (list both to block
+    # all). Read for every message, so edits apply immediately. A missing
+    # file blocks nobody.
     dest_block: dest.blk
 
 # Where yamn downloads the public keyring and stats from. A download only

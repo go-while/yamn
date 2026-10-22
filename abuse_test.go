@@ -12,7 +12,7 @@ import (
 
 func TestDestBlock(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "dest.blk")
-	content := "# Opted out\nalice@example.invalid\n  BOB@Example.invalid  \n\n@blocked.invalid\n"
+	content := "# Opted out\nalice@example.invalid\n  BOB@Example.invalid  \n\n@blocked.invalid\n@*.wild.invalid\n"
 	if err := os.WriteFile(file, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -26,8 +26,12 @@ func TestDestBlock(t *testing.T) {
 		"bob@example.invalid":         true,
 		"anyone@blocked.invalid":      true,
 		"carol@example.invalid":       false,
-		"someone@sub.blocked.invalid": true, // subdomains too
+		"someone@sub.blocked.invalid": false, // only the exact domain
 		"someone@notblocked.invalid":  false,
+		"someone@a.wild.invalid":      true, // @*.domain: any subdomain
+		"someone@a.b.wild.invalid":    true,
+		"someone@wild.invalid":        false, // but not the domain itself
+		"someone@notwild.invalid":     false,
 		"# opted out":                 false,
 	} {
 		if got := destBlocked(list, addy); got != want {

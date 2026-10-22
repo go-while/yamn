@@ -50,7 +50,7 @@ type Config struct {
 		IDlog    string `yaml:"idlog"`
 		ChunkDB  string `yaml:"chunkdb"`
 		Logfile  string `yaml:"logfile"`
-		// Destination block list: one address or "@domain" per line
+		// Destination block list: one address, "@domain" or "@*.domain" per line
 		DestBlock string `yaml:"dest_block"`
 	} `yaml:"files"`
 	Urls struct {
