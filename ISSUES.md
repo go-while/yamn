@@ -561,7 +561,14 @@ not part of the repository yet and come with the fixes.
 - **Fix:** deliver to each recipient domain's MX, and remember in the pool
   file who already has the message, so a retry only sends to the rest.
 - **Found:** review 2, M-18 (not in Y-50).
-- **Status:** open.
+- **Status:** fixed in `da315a3` (branch `fix/53-multi-recipient`). With
+  `mx_relay`, each recipient domain gets its own MX session; `smtpSend`
+  reports per recipient, so a `4xx` only defers that recipient; after a
+  partial delivery the pool file's first line notes the done recipients and a
+  retry sends only to the rest; a warning at startup when mail would go to the
+  default `fleegle.mixmin.net`. Tests: `TestMXSendPerDomain`,
+  `TestMXSendPartialRetry`, `TestPoolDoneNotForgeable`,
+  `TestParseInternalHeader`, `TestDeliveryFailures`, `TestNagDefaultRelay`.
 
 ## Low
 
