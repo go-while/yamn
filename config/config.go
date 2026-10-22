@@ -14,6 +14,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultSMTPRelay is upstream's default mail.smtp_relay, a server of the
+// upstream author.  It only relays for the hosts it allows.
+const DefaultSMTPRelay = "fleegle.mixmin.net"
+
 // Config contains all the configuration settings for Yamn.
 // Pinger is a source of remailer keys and stats.
 type Pinger struct {
@@ -449,7 +453,7 @@ func (f *Flags) newConfig() *Config {
 	c.Urls.KeyQuorum = 2
 	c.Mail.Sendmail = false
 	c.Mail.Outfile = false
-	c.Mail.SMTPRelay = "fleegle.mixmin.net"
+	c.Mail.SMTPRelay = DefaultSMTPRelay
 	c.Mail.SMTPPort = "587"
 	c.Mail.UseTLS = true
 	c.Mail.RequireTLS = false

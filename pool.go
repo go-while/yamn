@@ -476,9 +476,20 @@ const poolTempPrefix = ".tmp-"
 // is synced and then renamed, so a pool reader never sees a partial file and
 // a crash leaves none behind.
 func writePoolFile(prefix string, content ...[]byte) (filename string, err error) {
+	fqfn := randPoolFilename(prefix)
+	if err = writePoolFileAs(fqfn, content...); err != nil {
+		return "", err
+	}
+	_, filename = path.Split(fqfn)
+	return filename, nil
+}
+
+// writePoolFileAs atomically writes content to the pool file fqfn, replacing
+// it if it exists, in the same way as writePoolFile.
+func writePoolFileAs(fqfn string, content ...[]byte) (err error) {
 	tmp, err := os.CreateTemp(cfg.Files.Pooldir, poolTempPrefix+"*")
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", errPoolWrite, err)
+		return fmt.Errorf("%w: %w", errPoolWrite, err)
 	}
 	defer func() {
 		if err != nil {
@@ -498,7 +509,6 @@ func writePoolFile(prefix string, content ...[]byte) (filename string, err error
 	if err = tmp.Close(); err != nil {
 		return
 	}
-	fqfn := randPoolFilename(prefix)
 	if err = os.Rename(tmp.Name(), fqfn); err != nil {
 		return
 	}
@@ -507,8 +517,7 @@ func writePoolFile(prefix string, content ...[]byte) (filename string, err error
 		d.Sync()
 		d.Close()
 	}
-	_, filename = path.Split(fqfn)
-	return filename, nil
+	return nil
 }
 
 // cleanPoolTemp deletes temporary pool files left behind by a crash.

@@ -180,6 +180,46 @@ func (chunk *Chunk) AssembledSize(items []string) (size int) {
 	return
 }
 
+// The first line of a pooled exit message is yamn's own, never the
+// sender's: "Yamn-Pooled-Date: <date>", and after a partial delivery
+// "; done=" with the recipients that are done with, comma separated (an
+// address valid for an exit can't have a comma or semicolon; see
+// validRecipient).  Keeping both on that line means nothing in the sender's
+// message can pose as them.
+const (
+	pooledDatePrefix = "Yamn-Pooled-Date: "
+	pooledDoneSep    = "; done="
+)
+
+// parseInternalHeader returns the date and the done recipients from the
+// first line of a pool file.  ok is false if there's no such line.
+func parseInternalHeader(content []byte) (date string, done []string, ok bool) {
+	line, ok := bytes.CutPrefix(content, []byte(pooledDatePrefix))
+	if !ok {
+		return
+	}
+	if i := bytes.IndexByte(line, '\n'); i >= 0 {
+		line = line[:i]
+	}
+	date, list, _ := strings.Cut(string(line), pooledDoneSep)
+	date = strings.TrimSpace(date)
+	for _, a := range strings.Split(list, ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			done = append(done, a)
+		}
+	}
+	return
+}
+
+// internalHeaderLine returns the first line of a pool file.
+func internalHeaderLine(date string, done []string) []byte {
+	line := pooledDatePrefix + date
+	if len(done) > 0 {
+		line += pooledDoneSep + strings.Join(done, ",")
+	}
+	return []byte(line + "\n")
+}
+
 // stripInternalHeader removes the Yamn-Pooled-Date line that writePlainToPool
 // puts at the start of a pool file.
 func stripInternalHeader(content []byte) []byte {

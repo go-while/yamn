@@ -33,6 +33,7 @@ func TestDeliveryFailures(t *testing.T) {
 		wantDelivered bool
 		wantKept      bool
 		wantRcpts     []string // recipients of the delivered message
+		wantDone      []string // done recipients noted in a kept file
 	}{
 		{name: "accepted", to: "a@example.invalid", wantDelivered: true, wantRcpts: []string{"a@example.invalid"}},
 		{name: "recipient rejected", to: "a@example.invalid",
@@ -40,9 +41,15 @@ func TestDeliveryFailures(t *testing.T) {
 		{name: "one of two rejected", to: "a@example.invalid, b@example.invalid",
 			rcptReply:     map[string]string{"a@example.invalid": "550 5.1.1 no such user"},
 			wantDelivered: true, wantRcpts: []string{"b@example.invalid"}},
+		// The accepted recipient gets it now; the file stays for the
+		// deferred one, and notes that a is done.
 		{name: "recipient deferred", to: "a@example.invalid, b@example.invalid",
-			rcptReply: map[string]string{"b@example.invalid": "451 4.7.1 greylisted"},
-			wantKept:  true},
+			rcptReply:     map[string]string{"b@example.invalid": "451 4.7.1 greylisted"},
+			wantDelivered: true, wantKept: true, wantRcpts: []string{"a@example.invalid"},
+			wantDone: []string{"a@example.invalid"}},
+		{name: "deferred and rejected", to: "a@example.invalid, b@example.invalid",
+			rcptReply: map[string]string{"a@example.invalid": "550 5.1.1 no such user", "b@example.invalid": "451 4.7.1 greylisted"},
+			wantKept:  true, wantDone: []string{"a@example.invalid"}},
 		{name: "message rejected", to: "a@example.invalid", dataReply: "554 5.1.0 bad recipient"},
 		// From the relay, a policy 5xx usually means a misconfiguration
 		// (relaying denied, missing login): keep the mail.
@@ -69,9 +76,12 @@ func TestDeliveryFailures(t *testing.T) {
 			}
 			file := writePoolMessage(t, "To: "+tt.to+"\n")
 			emailPoolFile(filepath.Base(file))
-			_, err := os.Stat(file)
+			content, err := os.ReadFile(file)
 			if kept := err == nil; kept != tt.wantKept {
 				t.Errorf("pool file kept = %v, want %v", kept, tt.wantKept)
+			}
+			if _, done, _ := parseInternalHeader(content); !slices.Equal(done, tt.wantDone) {
+				t.Errorf("done recipients in the pool file = %q, want %q", done, tt.wantDone)
 			}
 			_, _, delivered := server.result()
 			if delivered != tt.wantDelivered {

@@ -108,13 +108,17 @@ mail:
     # recipient's MX (which otherwise uses opportunistic TLS). Mail that can't
     # be delivered this way stays in the pool. Implies usetls.
     require_tls: false
-    # SMTP relay and port
+    # SMTP relay and port, for all mail when mx_relay is off or sendmail is
+    # on. The default is the upstream author's server, which only relays for
+    # hosts it allows; yamn warns if it would be used.
     smtp_relay: fleegle.mixmin.net
     smtp_port: "587"
-    # Deliver a message with a single recipient directly to that recipient's
-    # MX. A domain without MX records gets the mail at its own address; one
-    # with a null MX, or that doesn't exist, can't receive mail. If DNS fails,
-    # the message stays in the pool.
+    # Deliver directly to the MX of each recipient domain, one SMTP session
+    # per domain, so each server only sees its own recipients. A domain
+    # without MX records gets the mail at its own address; one with a null
+    # MX, or that doesn't exist, can't receive mail. If DNS fails or a
+    # server defers some recipients (4xx), the message stays in the pool for
+    # them only: the pool file notes who already has it.
     mx_relay: true
     # Ignored, with a warning if set: yamn connects to an MX directly and
     # can't reach .onion hosts, so it always skips them. Mail to a .onion
