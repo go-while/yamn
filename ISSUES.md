@@ -1065,5 +1065,16 @@ were found later. Each status line names the tests that came with the fix.
     insert `Yamn-Pooled-Date` lines into the body (upstream's half of Y-05).
   - Upstream clients reuse one packet ID for all chunks, so every exit drops
     their chunks 2+.
-- **Found:** review 2, C-9 to C-11.
+- **`github.com/dchest/blake2s`** (v1.0.0, last commit 2017, CC0):
+  - Used for keyids, BLAKE2s-128 (`keymgr/public.go`, `makeKeyID`), and the
+    armor digest, BLAKE2s-256 (`utils.go`, `armor` and `stripArmor`). The
+    anti-tag check in `packet.go` uses `golang.org/x/crypto/blake2s`.
+  - Reviewed 2026-10-22: its output matches Python's `hashlib.blake2s` and
+    `x/crypto/blake2s` for all sizes from 1 to 32 bytes, keyed and unkeyed,
+    with salt, personalization and tree parameters, chunked writes, and
+    input past 4 GiB. Pure Go, no `unsafe`, and `Write` can't panic.
+  - It stays: keyids need unkeyed BLAKE2s-128, and `x/crypto` refuses that
+    ("a key is required for a 128-bit hash"). Moving the armor digest to
+    `x/crypto` gives the same output but wouldn't remove the dependency.
+- **Found:** review 2, C-9 to C-11; dchest review 2026-10-22.
 - **Status:** no action needed.
