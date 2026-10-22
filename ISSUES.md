@@ -966,6 +966,19 @@ not part of the repository yet and come with the fixes.
 - **Status:** fixed in `6902217` (branch `fix/49-fetch-on-send`, #61). Tests:
   `TestFetchOnSend`.
 
+### Y-54: Mail to `.onion` hosts can't be delivered
+
+- **Where:** `mail.go` (`mxLookup`, `smtpSend`), `config/config.go`
+  (`onion_relay`).
+- **Impact:** yamn connects to mail servers directly and Go's resolver
+  refuses `.onion` names (RFC 7686), so an address at a `.onion` domain, a
+  `.onion` MX or a `.onion` `smtp_relay` can't be reached. Upstream's
+  `onion_relay` only stopped skipping `.onion` MX hosts, which then failed
+  to resolve. Since Y-50, mail to a `.onion` domain is refused at once.
+- **Fix:** an option for Tor's SOCKS port, and delivery to `.onion` hosts
+  through it, without DNS.
+- **Found:** discussion after Y-50.
+
 ## Info
 
 ### Y-50: Smaller mail issues
