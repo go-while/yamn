@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/crooks/yamn/config"
 )
 
 func TestMessageIDDomain(t *testing.T) {
@@ -70,5 +72,32 @@ func TestMailDatesUTC(t *testing.T) {
 	stamp, err := time.Parse("20060102.150405", id[:min(len(id), 15)])
 	if err != nil || time.Since(stamp).Abs() > time.Minute {
 		t.Errorf("Message-ID %q should start with the UTC time", id)
+	}
+}
+
+// TestNagDefaultRelay checks the warning about upstream's default
+// smtp_relay: only when mail would go there.
+func TestNagDefaultRelay(t *testing.T) {
+	for _, tt := range []struct {
+		mxRelay, sendmail bool
+		relay             string
+		pipe              string
+		want              bool
+	}{
+		{true, false, config.DefaultSMTPRelay, "", false},
+		{false, false, config.DefaultSMTPRelay, "", true},
+		{true, true, config.DefaultSMTPRelay, "", true},
+		{false, false, "localhost", "", false},
+		{false, false, config.DefaultSMTPRelay, "/usr/sbin/sendmail -i", false},
+	} {
+		setupTestConfig(t)
+		logged := captureLog(t)
+		cfg.Mail.MXRelay, cfg.Mail.Sendmail = tt.mxRelay, tt.sendmail
+		cfg.Mail.SMTPRelay, cfg.Mail.Pipe = tt.relay, tt.pipe
+		nagOperator()
+		if got := strings.Contains(logged.String(), "smtp_relay is still the default"); got != tt.want {
+			t.Errorf("mx_relay=%v sendmail=%v relay=%q pipe=%q: warned %v, want %v",
+				tt.mxRelay, tt.sendmail, tt.relay, tt.pipe, got, tt.want)
+		}
 	}
 }

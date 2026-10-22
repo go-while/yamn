@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/log-go"
+	"github.com/crooks/yamn/config"
 	"github.com/crooks/yamn/crandom"
 	"github.com/crooks/yamn/idlog"
 	"github.com/crooks/yamn/keymgr"
@@ -267,6 +268,15 @@ func nagOperator() {
 			"mail.message_domain %q isn't a valid domain and is ignored. "+
 				"Message-IDs use the domain of remailer.address.",
 			cfg.Mail.MessageDomain,
+		)
+	}
+	if usesSMTPRelay() && cfg.Mail.SMTPRelay == config.DefaultSMTPRelay {
+		log.Warnf(
+			"mail.smtp_relay is still the default %s, a server of the "+
+				"upstream author that refuses to relay for other hosts "+
+				"unless they're allowed there. Set smtp_relay to your own "+
+				"mail server, or use mx_relay.",
+			config.DefaultSMTPRelay,
 		)
 	}
 	if cfg.Mail.OnionRelay {

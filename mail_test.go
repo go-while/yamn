@@ -86,9 +86,11 @@ type fakeSMTP struct {
 	usedTLS   bool
 	usedAuth  bool
 	delivered bool
-	helo      string   // name given with EHLO or HELO
-	rcpts     []string // RCPT TO addresses
-	data      []byte   // message received with DATA
+	helo      string     // name given with EHLO or HELO
+	rcpts     []string   // RCPT TO addresses
+	sessions  [][]string // accepted recipients of each delivered message
+	dialed    []string   // addresses the client dialed
+	data      []byte     // message received with DATA
 }
 
 func newFakeSMTP(t *testing.T, cert *tls.Certificate, offerAuth bool, stall string) *fakeSMTP {
@@ -113,7 +115,10 @@ func newFakeSMTP(t *testing.T, cert *tls.Certificate, offerAuth bool, stall stri
 	}()
 	// Send every SMTP dial to this server, whatever host name is used.
 	oldDial := smtpDial
-	smtpDial = func(network, _ string) (net.Conn, error) {
+	smtpDial = func(network, address string) (net.Conn, error) {
+		s.mu.Lock()
+		s.dialed = append(s.dialed, address)
+		s.mu.Unlock()
 		return net.Dial(network, ln.Addr().String())
 	}
 	t.Cleanup(func() { smtpDial = oldDial })
@@ -129,6 +134,7 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 		return
 	}
 	tp.PrintfLine("220 fake ESMTP")
+	var accepted []string // recipients accepted in this transaction
 	for {
 		line, err := tp.ReadLine()
 		if err != nil {
@@ -183,8 +189,12 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 			if reply == "" {
 				reply = "250 OK"
 			}
+			if strings.HasPrefix(reply, "250") {
+				accepted = append(accepted, addr)
+			}
 			tp.PrintfLine("%s", reply)
 		case strings.HasPrefix(cmd, "MAIL"):
+			accepted = nil
 			tp.PrintfLine("250 OK")
 		case cmd == "DATA":
 			tp.PrintfLine("354 Go ahead")
@@ -198,6 +208,7 @@ func (s *fakeSMTP) serve(conn net.Conn) {
 				reply = "250 Queued"
 				s.data = data
 				s.delivered = true
+				s.sessions = append(s.sessions, accepted)
 			}
 			s.mu.Unlock()
 			tp.PrintfLine("%s", reply)
@@ -276,7 +287,7 @@ func TestSmtpSendTLS(t *testing.T) {
 			t.Cleanup(func() { smtpRootCAs = oldRoots })
 			server := newFakeSMTP(t, tt.cert, true, "")
 
-			err := smtpSend(tt.host, "25", tt.directMX, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"})
+			_, err := smtpSend(tt.host, "25", tt.directMX, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"})
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("smtpSend error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -307,7 +318,7 @@ func TestSmtpSendRequireTLSWithoutUseTLS(t *testing.T) {
 	cfg.Mail.UseTLS = false
 	cfg.Mail.RequireTLS = true
 	server := newFakeSMTP(t, &mxCert, false, "")
-	if err := smtpSend("mx.test", "25", true, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"}); err != nil {
+	if _, err := smtpSend("mx.test", "25", true, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"}); err != nil {
 		t.Fatalf("smtpSend failed: %s", err)
 	}
 	if usedTLS, _, delivered := server.result(); !usedTLS || !delivered {
@@ -328,7 +339,7 @@ func TestSmtpSendHello(t *testing.T) {
 		cfg.Mail.MessageDomain = tt.messageDomain
 		cfg.Remailer.Address = tt.address
 		server := newFakeSMTP(t, nil, false, "")
-		if err := smtpSend("localhost", "25", false, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"}); err != nil {
+		if _, err := smtpSend("localhost", "25", false, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"}); err != nil {
 			t.Fatalf("smtpSend failed: %s", err)
 		}
 		server.mu.Lock()
@@ -369,7 +380,7 @@ func TestSmtpSendTimeout(t *testing.T) {
 			server := newFakeSMTP(t, nil, false, stall)
 
 			start := time.Now()
-			err := smtpSend("localhost", "25", false, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"})
+			_, err := smtpSend("localhost", "25", false, []byte("Subject: test\n\nbody\n"), []string{"rcpt@example.invalid"})
 			elapsed := time.Since(start)
 			if err == nil {
 				t.Fatal("smtpSend should fail when the server stops responding")

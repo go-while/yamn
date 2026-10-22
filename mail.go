@@ -443,11 +443,8 @@ func parseFrom(h mail.Header) []string {
 // doesn't parse, the file's modification time is used, so every file expires
 // after pool.max_age days.
 func poolFileAge(filename string, content []byte) int {
-	if line, ok := bytes.CutPrefix(content, []byte("Yamn-Pooled-Date: ")); ok {
-		if i := bytes.IndexByte(line, '\n'); i >= 0 {
-			line = line[:i]
-		}
-		date, err := time.Parse(shortdate, strings.TrimSpace(string(line)))
+	if line, _, ok := parseInternalHeader(content); ok {
+		date, err := time.Parse(shortdate, line)
 		if err == nil {
 			return daysAgo(date)
 		}
@@ -551,45 +548,159 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 		delFlag = true
 		return
 	}
+	// Skip the recipients an earlier run already finished.
+	date, alreadyDone, _ := parseInternalHeader(content)
+	todo := withoutAddresses(sendTo, alreadyDone)
+	if len(todo) == 0 {
+		log.Infof("%s: every recipient was done with by an earlier run", filename)
+		return
+	}
 	// Temporary errors keep the file for the next pool run.  Permanent
 	// ones delete it: retrying won't help.
-	err = mailBytes(assemble(*msg), sendTo)
-	if errors.Is(err, errPermanent) {
-		delFlag = true
+	done, err := mailRecipients(assemble(*msg), todo)
+	if len(done) >= len(todo) {
+		if errors.Is(err, errPermanent) {
+			delFlag = true
+		}
+		return
+	}
+	if len(done) > 0 {
+		// Some recipients have it.  Note them in the file, so the next
+		// run only sends to the others.
+		if date == "" {
+			date = time.Now().UTC().Format(shortdate)
+		}
+		werr := writePoolFileAs(filename,
+			internalHeaderLine(date, append(alreadyDone, done...)),
+			stripInternalHeader(content))
+		if werr != nil {
+			log.Errorf("%s: noting the done recipients failed, a retry sends to them again: %s", filename, werr)
+		}
 	}
 	return
 }
 
-// Mail a byte payload to a given address
-func mailBytes(payload []byte, sendTo []string) (err error) {
-	// Test if the message is destined for the local remailer
+// withoutAddresses returns the addresses in all that aren't in remove,
+// ignoring case.
+func withoutAddresses(all, remove []string) (left []string) {
+	skip := make(map[string]bool)
+	for _, a := range remove {
+		skip[strings.ToLower(a)] = true
+	}
+	for _, a := range all {
+		if !skip[strings.ToLower(a)] {
+			left = append(left, a)
+		}
+	}
+	return
+}
+
+// mailBytes mails payload to sendTo and reports whether that worked; see
+// mailRecipients.
+func mailBytes(payload []byte, sendTo []string) error {
+	_, err := mailRecipients(payload, sendTo)
+	return err
+}
+
+// mailRecipients mails payload to sendTo with the configured method, and
+// returns the recipients that are done with: those that got the message and
+// those refused for good.  The error is nil when every recipient is done and
+// at least one got it, errPermanent when every recipient is done and none
+// got it, and a temporary error when some recipients still need a try.  The
+// pipe and outfile methods give no result per recipient, so for them it's
+// all or nothing.
+func mailRecipients(payload []byte, sendTo []string) (done []string, err error) {
 	log.Tracef("Message recipients are: %s", strings.Join(sendTo, ","))
-	if cfg.Mail.Outfile {
+	switch {
+	case cfg.Mail.Outfile:
 		var filename string
-		filename, err = writePoolFile("outfile-", payload)
-		if err != nil {
+		if filename, err = writePoolFile("outfile-", payload); err != nil {
 			log.Warnf("Outfile write failed: %s", err)
 			return
 		}
 		log.Tracef("Wrote output to %s", filename)
-	} else if strings.TrimSpace(cfg.Mail.Pipe) != "" {
-		err = execSend(payload, cfg.Mail.Pipe, sendTo)
-		if err != nil {
+		done = sendTo
+	case strings.TrimSpace(cfg.Mail.Pipe) != "":
+		if err = execSend(payload, cfg.Mail.Pipe, sendTo); err != nil {
 			log.Warn("Email pipe failed")
 			return
 		}
-	} else if cfg.Mail.Sendmail {
-		err = sendmail(payload, sendTo)
-		if err != nil {
-			log.Warn("Sendmail failed")
-			return
+		done = sendTo
+	case usesSMTPRelay():
+		done, err = smtpSend(cfg.Mail.SMTPRelay, cfg.Mail.SMTPPort, false, payload, sendTo)
+	default:
+		done, err = mxSend(payload, sendTo)
+	}
+	return
+}
+
+// usesSMTPRelay reports whether mail goes to smtp_relay: with sendmail, or
+// when mx_relay is off (and neither outfile nor pipe is set).
+func usesSMTPRelay() bool {
+	if cfg.Mail.Outfile || strings.TrimSpace(cfg.Mail.Pipe) != "" {
+		return false
+	}
+	return cfg.Mail.Sendmail || !cfg.Mail.MXRelay
+}
+
+// mxSend delivers payload to the MX of each recipient domain in turn, with
+// one SMTP session per domain, so every server only learns its own
+// recipients.  It returns like mailRecipients.
+func mxSend(payload []byte, sendTo []string) (done []string, err error) {
+	var errs []error
+	delivered, pending := false, false
+	for _, group := range groupByDomain(sendTo) {
+		mx, lerr := mxLookup(group[0])
+		if lerr != nil {
+			log.Warn(lerr)
+			errs = append(errs, lerr)
+			if errors.Is(lerr, errPermanent) {
+				done = append(done, group...)
+			} else {
+				pending = true
+			}
+			continue
 		}
-	} else {
-		err = smtpRelay(payload, sendTo)
-		if err != nil {
-			log.Warn("SMTP relay failed")
-			return
+		log.Tracef("Doing direct relay for %s to %s:25.", strings.Join(group, ","), mx)
+		d, serr := smtpSend(mx, "25", true, payload, group)
+		done = append(done, d...)
+		switch {
+		case serr == nil:
+			delivered = true
+		case errors.Is(serr, errPermanent):
+			errs = append(errs, serr)
+		default:
+			errs = append(errs, serr)
+			pending = true
 		}
+	}
+	switch {
+	case pending:
+		// Not wrapped: some of errs may be errPermanent, but the
+		// message isn't done with.
+		err = fmt.Errorf("%d of %d recipients still to do: %v",
+			len(sendTo)-len(done), len(sendTo), errors.Join(errs...))
+	case !delivered:
+		err = fmt.Errorf("%w: no recipient got the message: %w", errPermanent, errors.Join(errs...))
+	case len(errs) > 0:
+		log.Infof("Delivered, but some recipients were refused: %s", errors.Join(errs...))
+	}
+	return
+}
+
+// groupByDomain splits addresses into groups with the same domain (ignoring
+// case), in the order the domains first appear.
+func groupByDomain(addresses []string) (groups [][]string) {
+	index := make(map[string]int)
+	for _, a := range addresses {
+		d := strings.ToLower(a[strings.LastIndex(a, "@")+1:])
+		i, ok := index[d]
+		if !ok {
+			i = len(groups)
+			index[d] = i
+			groups = append(groups, nil)
+		}
+		groups[i] = append(groups[i], a)
 	}
 	return
 }
@@ -695,44 +806,16 @@ func smtpTLSConfig(host string, directMX bool) *tls.Config {
 	}
 }
 
-func smtpRelay(payload []byte, sendTo []string) (err error) {
-	relay := cfg.Mail.SMTPRelay
-	port := cfg.Mail.SMTPPort
-	directMX := false
-
-	/*
-		The following section tries to get the MX record for the
-		recipient email address, when there is only a single recipient.
-		If it succeeds, the email will be sent directly to the
-		recipient MX.
-	*/
-	if cfg.Mail.MXRelay && len(sendTo) == 1 {
-		log.Tracef("DNS lookup of MX record for %s.", sendTo[0])
-		mx, err := mxLookup(sendTo[0])
-		if err != nil {
-			log.Warn(err)
-			return err
-		}
-		log.Tracef(
-			"Doing direct relay for %s to %s:25.",
-			sendTo[0],
-			mx,
-		)
-		relay = mx
-		port = "25"
-		directMX = true
-	}
-	return smtpSend(relay, port, directMX, payload, sendTo)
-}
-
 // smtpSend delivers payload to sendTo through the SMTP server at relay:port.
-// directMX is true when relay is the recipient's MX rather than the
-// configured relay.  Recipients rejected with a 5xx reply are skipped, and
-// the message goes to the others.  The error is marked errPermanent if every
-// recipient, or the message itself, got a 5xx reply.  Other failures (4xx
-// replies, network and TLS errors) are temporary and nothing is delivered,
-// so the message can be sent again later.
-func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string) (err error) {
+// directMX is true when relay is the recipients' MX rather than the
+// configured relay.  It returns the recipients that are done with, and an
+// error, as mailRecipients does.  A recipient refused with a 5xx reply is
+// done with (from the configured relay, only an address error; see
+// permanentFor), one deferred with a 4xx reply isn't, and the message goes
+// to the accepted ones either way.  A failure before the recipients (network,
+// TLS, login, MAIL FROM) or a 5xx relay refusal such as "relaying denied"
+// leaves every recipient to do.
+func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string) (done []string, err error) {
 	serverAddr := net.JoinHostPort(relay, port)
 
 	conn, err := smtpDial("tcp", serverAddr)
@@ -823,66 +906,88 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		return
 	}
 
-	accepted := 0
+	var accepted, refused, deferred []string
+	var lastErr error
 	for _, addr := range sendTo {
-		if err = client.Rcpt(addr); err != nil {
-			if permanentFor(err, directMX) {
-				log.Infof("Recipient rejected: Server=%s, Error=%s", serverAddr, err)
-				continue
-			}
-			log.Warnf("Error: %s\n", err)
-			return
+		rerr := client.Rcpt(addr)
+		switch {
+		case rerr == nil:
+			accepted = append(accepted, addr)
+		case permanentFor(rerr, directMX):
+			log.Infof("Recipient rejected: Server=%s, Error=%s", serverAddr, rerr)
+			refused = append(refused, addr)
+			lastErr = rerr
+		case isTemporarySMTP(rerr):
+			log.Infof("Recipient deferred: Server=%s, Error=%s", serverAddr, rerr)
+			deferred = append(deferred, addr)
+			lastErr = rerr
+		default:
+			// A network error, or the relay refusing to relay.
+			log.Warnf("RCPT Error: Server=%s, Error=%s", serverAddr, rerr)
+			return nil, rerr
 		}
-		accepted++
 	}
-	if accepted == 0 {
-		err = fmt.Errorf("%w: every recipient was rejected: %w", errPermanent, err)
+	if len(accepted) == 0 {
+		if len(deferred) > 0 {
+			err = fmt.Errorf("%s: no recipient accepted the message yet: %w", serverAddr, lastErr)
+		} else {
+			err = fmt.Errorf("%w: every recipient was rejected: %w", errPermanent, lastErr)
+		}
 		log.Warn(err)
-		return
+		return refused, err
 	}
-	err = nil
 
+	done = refused
+	err = smtpData(client, payload)
+	switch {
+	case err == nil:
+		done = append(done, accepted...)
+		// The message has been accepted at this point.  A failed QUIT
+		// must not be reported as a failed delivery, or the message
+		// would be sent again.
+		if qerr := client.Quit(); qerr != nil {
+			log.Tracef("SMTP QUIT failed after delivery: Server=%s, Error=%s", serverAddr, qerr)
+		}
+	case permanentFor(err, directMX):
+		done = append(done, accepted...)
+		err = fmt.Errorf("%w: message rejected: %w", errPermanent, err)
+		log.Warnf("Error: %s", err)
+	default:
+		log.Warnf("Error: %s", err)
+		return done, err
+	}
+	if len(deferred) > 0 {
+		// Not wrapped, even after a 5xx to DATA: the deferred
+		// recipients still need a try.
+		err = fmt.Errorf("%s: %d recipients deferred: %v (message: %v)", serverAddr, len(deferred), lastErr, err)
+	}
+	return done, err
+}
+
+// smtpData sends the message after the recipients have been accepted.
+func smtpData(client *smtp.Client, payload []byte) error {
 	w, err := client.Data()
 	if err != nil {
-		if permanentFor(err, directMX) {
-			err = fmt.Errorf("%w: %w", errPermanent, err)
-		}
-		log.Warnf("Error: %s\n", err)
-		return
+		return err
 	}
-
-	_, err = w.Write(payload)
-	if err != nil {
-		log.Warnf("Error: %s\n", err)
-		return
-
+	if _, err = w.Write(payload); err != nil {
+		return err
 	}
+	return w.Close()
+}
 
-	err = w.Close()
-	if err != nil {
-		if permanentFor(err, directMX) {
-			err = fmt.Errorf("%w: message rejected: %w", errPermanent, err)
-		}
-		log.Warnf("Error: %s\n", err)
-		return
-
-	}
-
-	// The message has been accepted at this point.  A failed QUIT must not
-	// be reported as a failed delivery, or the message would be sent again.
-	if qerr := client.Quit(); qerr != nil {
-		log.Tracef("SMTP QUIT failed after delivery: Server=%s, Error=%s", serverAddr, qerr)
-	}
-	return
+// isTemporarySMTP reports whether err is a 4xx SMTP reply.
+func isTemporarySMTP(err error) bool {
+	var tpErr *textproto.Error
+	return errors.As(err, &tpErr) && tpErr.Code >= 400 && tpErr.Code <= 499
 }
 
 // sendmail delivers through the configured relay only (no direct MX
-// delivery).  It shares smtpSend with smtpRelay, so it uses the same TLS
-// policy and timeouts.
-func sendmail(payload []byte, sendTo []string) (err error) {
-	err = smtpSend(cfg.Mail.SMTPRelay, cfg.Mail.SMTPPort, false, payload, sendTo)
+// delivery), with the same TLS policy and timeouts as smtpSend.
+func sendmail(payload []byte, sendTo []string) error {
+	_, err := smtpSend(cfg.Mail.SMTPRelay, cfg.Mail.SMTPPort, false, payload, sendTo)
 	if err != nil {
 		log.Warn(err)
 	}
-	return
+	return err
 }
