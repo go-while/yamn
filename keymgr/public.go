@@ -41,6 +41,10 @@ type Pubring struct {
 	keysImported   time.Time         // Timestamp on most recently read pubring.mix file
 	statsImported  time.Time         // Timestamp on most recently read mlist2.txt file
 	statsGenerated time.Time         // Generated timestamp on mlist2.txt file
+	pinFile        string            // Key pins (see pins.go); "" for none
+	pinMode        PinMode
+	held           map[string]string // Remailers held by pinning, by name and address: why
+	pinEvents      []PinEvent        // What pinning reported at the last import
 }
 
 func NewPubring(pubfile, statfile string) *Pubring {
@@ -65,6 +69,23 @@ func (p *Pubring) HaveStats() bool {
 
 func (p *Pubring) UseExpired() {
 	p.useExpired = true
+}
+
+// SetPinning makes ImportPubring check the keys against the pins in file
+// (see pins.go).
+func (p *Pubring) SetPinning(file string, mode PinMode) {
+	p.pinFile = file
+	p.pinMode = mode
+}
+
+// HasHeld reports whether pinning held a remailer at the last import.
+func (p *Pubring) HasHeld() bool {
+	return len(p.held) > 0
+}
+
+// PinEvents returns what pinning reported at the last ImportPubring.
+func (p *Pubring) PinEvents() []PinEvent {
+	return p.pinEvents
 }
 
 // KeyRefresh returns True if the Pubring file has been modified.  Without
@@ -155,6 +176,10 @@ func (p Pubring) Get(ref string) (r Remailer, err error) {
 	if strings.Contains(ref, "@") {
 		r, exists = p.pub[ref]
 		if !exists {
+			if why, ok := p.held[ref]; ok {
+				err = fmt.Errorf("%s: held by key pinning: %s", ref, why)
+				return
+			}
 			err = fmt.Errorf(
 				"%s: Remailer address not found in public "+
 					"keyring",
@@ -166,6 +191,10 @@ func (p Pubring) Get(ref string) (r Remailer, err error) {
 		var addy string
 		addy, exists = p.xref[ref]
 		if !exists {
+			if why, ok := p.held[ref]; ok {
+				err = fmt.Errorf("%s: held by key pinning: %s", ref, why)
+				return
+			}
 			err = fmt.Errorf(
 				"%s: Remailer name not found in public "+
 					"keyring",
@@ -217,6 +246,9 @@ func (p *Pubring) ImportStats() (err error) {
 	p.statsGenerated = generated
 	for _, row := range rows {
 		remAddr, exists := p.xref[row.name]
+		if _, held := p.held[row.name]; !exists && held {
+			continue // reported by pinning
+		}
 		if !exists {
 			fmt.Fprintf(os.Stderr, "%s: Stats for unknown remailer\n", row.name)
 			continue
@@ -388,6 +420,18 @@ func (p *Pubring) ImportPubring() (err error) {
 	// MergePingers decides ambiguous names and addresses by the pingers'
 	// votes; within one keyring there's nothing to decide by.
 	rems = dropAmbiguous(rems, stderrWarn)
+	p.held, p.pinEvents = nil, nil
+	if p.pinMode != PinOff && p.pinFile != "" {
+		var pins *PinStore
+		pins, err = LoadPins(p.pinFile)
+		if err != nil {
+			return fmt.Errorf("key pins: %w", err)
+		}
+		rems, p.held, p.pinEvents = pins.check(rems, p.pinMode, time.Now())
+		if err := pins.Save(); err != nil {
+			p.pinEvents = append(p.pinEvents, PinEvent{Warn: true, Msg: fmt.Sprintf("Saving key pins: %s", err)})
+		}
+	}
 	// Replace the keys, so keys that left the file are dropped.
 	p.pub = make(map[string]Remailer)
 	p.xref = make(map[string]string)

@@ -115,6 +115,9 @@ func main() {
 	}
 
 	// Setup complete, time to do some work
+	if pinCommandRequested() {
+		exitOnPinCommand()
+	}
 	if flag.Client {
 		mixprep()
 	} else if flag.Import {

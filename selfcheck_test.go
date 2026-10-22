@@ -37,9 +37,9 @@ func setupSelfCheck(t *testing.T) (s *keymgr.Secring, own, forged string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		publishedMu.Lock()
-		clear(publishedLogged)
-		publishedMu.Unlock()
+		dailyMu.Lock()
+		clear(dailyLogged)
+		dailyMu.Unlock()
 	})
 	return s, string(ownKey), string(forgedKey)
 }

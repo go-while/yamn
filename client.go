@@ -15,7 +15,6 @@ import (
 
 	"github.com/Masterminds/log-go"
 	"github.com/crooks/yamn/crandom"
-	"github.com/crooks/yamn/keymgr"
 	//"github.com/codahale/blake2"
 )
 
@@ -178,16 +177,13 @@ func mixprep() {
 	refreshKeyring(false)
 
 	// Create the Public Keyring
-	Pubring = keymgr.NewPubring(
-		cfg.Files.Pubring,
-		cfg.Files.Mlist2,
-	)
+	Pubring = newPubring()
 	// Set the Use Expired flag to include remailers with expired keys as
 	// candidates.
 	if cfg.Stats.UseExpired {
 		Pubring.UseExpired()
 	}
-	err = Pubring.ImportPubring()
+	err = importPubring()
 	if err != nil {
 		log.Errorf("Pubring import failed: %s: %s", cfg.Files.Pubring, err)
 		os.Exit(1)
@@ -439,11 +435,10 @@ func encodeMsg(
 
 func injectDummy() {
 	// Populate public keyring
-	Pubring = keymgr.NewPubring(
-		cfg.Files.Pubring,
-		cfg.Files.Mlist2,
-	)
-	Pubring.ImportPubring()
+	Pubring = newPubring()
+	if err := importPubring(); err != nil {
+		log.Warnf("Importing %s: %s", cfg.Files.Pubring, err)
+	}
 	dummy()
 }
 

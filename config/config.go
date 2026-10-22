@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -58,6 +59,8 @@ type Config struct {
 		Logfile  string `yaml:"logfile"`
 		// Destination block list: one address, "@domain" or "@*.domain" per line
 		DestBlock string `yaml:"dest_block"`
+		// Remembered remailer keys, names and addresses (key pinning)
+		Keypins string `yaml:"keypins"`
 	} `yaml:"files"`
 	Urls struct {
 		Fetch   bool   `yaml:"fetch"`
@@ -67,6 +70,9 @@ type Config struct {
 		Pingers []Pinger `yaml:"pingers"`
 		// How many pingers must publish a key before it's used
 		KeyQuorum int `yaml:"key_quorum"`
+		// What to do when a remailer's key, name or address changes
+		// unexpectedly: hold, warn or off
+		KeyPinning string `yaml:"key_pinning"`
 	} `yaml:"urls"`
 	Mail struct {
 		Sendmail     bool   `yaml:"sendmail"`
@@ -158,6 +164,10 @@ type Flags struct {
 	KeepReplyTo bool
 	Version     bool
 	MemInfo     bool
+	// Key pinning: list the pins, accept or reject a held change
+	Pins      bool
+	PinAccept string
+	PinReject string
 }
 
 // GetCfg parses the command line flags and config file if they haven't been previously parsed.
@@ -260,6 +270,10 @@ func ParseFlags() *Flags {
 	flag.BoolVar(&f.MemInfo, "meminfo", false, "Log memory use with the hourly stats (loglevel info)")
 	// Refresh remailer stats files
 	flag.BoolVar(&f.Refresh, "refresh", false, "Refresh remailer stats files")
+	// Key pinning
+	flag.BoolVar(&f.Pins, "pins", false, "List the pinned remailer keys and held changes")
+	flag.StringVar(&f.PinAccept, "pin-accept", "", "Accept a remailer's held key, name or address change now")
+	flag.StringVar(&f.PinReject, "pin-reject", "", "Keep a remailer's pinned key, name and address; don't accept its held change")
 
 	flag.Parse()
 	// The message file, or recipient and message file, for client mode
@@ -386,6 +400,7 @@ func (c *Config) relativePaths() (rel []string) {
 		c.Files.Pubring, c.Files.Mlist2, c.Files.Pubkey, c.Files.Secring,
 		c.Files.Adminkey, c.Files.Help, c.Files.Pooldir, c.Files.Maildir,
 		c.Files.IDlog, c.Files.ChunkDB, c.Files.Logfile, c.Files.DestBlock,
+		c.Files.Keypins,
 	} {
 		if p != "" && !filepath.IsAbs(p) {
 			rel = append(rel, p)
@@ -450,10 +465,12 @@ func (f *Flags) newConfig() *Config {
 	c.Files.ChunkDB = "chunkdb"
 	c.Files.Logfile = "yamn.log"
 	c.Files.DestBlock = "dest.blk"
+	c.Files.Keypins = "keypins.json"
 	c.Urls.Fetch = true
 	c.Urls.Pubring = "https://www.mixmin.net/yamn/pubring.mix"
 	c.Urls.Mlist2 = "https://www.mixmin.net/yamn/mlist2.txt"
 	c.Urls.KeyQuorum = 2
+	c.Urls.KeyPinning = "hold"
 	c.Mail.Sendmail = false
 	c.Mail.Outfile = false
 	c.Mail.SMTPRelay = DefaultSMTPRelay
@@ -577,6 +594,8 @@ func (c *Config) validate() error {
 	check(s.Minrel >= 0 && s.Minrel <= 100, "stats.minrel must be 0 to 100, not %g", s.Minrel)
 	check(s.Relfinal >= 0 && s.Relfinal <= 100, "stats.rel_final must be 0 to 100, not %g", s.Relfinal)
 	check(c.Urls.KeyQuorum >= 1, "urls.key_quorum must be at least 1, not %d", c.Urls.KeyQuorum)
+	check(slices.Contains([]string{"hold", "warn", "off"}, c.Urls.KeyPinning),
+		"urls.key_pinning must be hold, warn or off, not %q", c.Urls.KeyPinning)
 	if c.Mail.TorSocks != "" {
 		host, port, err := net.SplitHostPort(c.Mail.TorSocks)
 		n, perr := strconv.Atoi(port)
@@ -595,6 +614,7 @@ func (c *Config) resolvePaths(dir string) {
 		&c.Files.Pubkey, &c.Files.Pubring, &c.Files.Secring, &c.Files.Mlist2,
 		&c.Files.Adminkey, &c.Files.Help, &c.Files.Pooldir, &c.Files.Maildir,
 		&c.Files.IDlog, &c.Files.ChunkDB, &c.Files.Logfile, &c.Files.DestBlock,
+		&c.Files.Keypins,
 	} {
 		// A leading "~/" is the home directory, as in a shell.
 		*p = expandHome(*p)

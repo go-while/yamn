@@ -25,15 +25,14 @@ import (
 // Start the server process.  If run with --daemon, this will loop forever.
 func loopServer() (err error) {
 	// Initialize the Public Keyring
-	Pubring = keymgr.NewPubring(
-		cfg.Files.Pubring,
-		cfg.Files.Mlist2,
-	)
+	Pubring = newPubring()
 	// Fetch keyring and stats URLs
 	refreshKeyring(false)
 	// Initialize the Secret Keyring
 	secret := keymgr.NewSecring(cfg.Files.Secring, cfg.Files.Pubkey)
-	Pubring.ImportPubring()
+	if err := importPubring(); err != nil {
+		log.Warnf("Importing %s: %s", cfg.Files.Pubring, err)
+	}
 	secret.ImportSecring()
 	// Tell the secret keyring some basic info about this remailer
 	secret.SetName(cfg.Remailer.Name)
@@ -137,13 +136,16 @@ func loopServer() (err error) {
 			*/
 			// Retrieve Mlist2 and Pubring URLs
 			refreshKeyring(false)
-			// Test to see if the pubring.mix file has been updated
-			if Pubring.KeyRefresh() {
+			// Import pubring.mix again if it has changed, or while key
+			// pinning holds a change: each hour counts as a sighting.
+			if Pubring.KeyRefresh() || Pubring.HasHeld() {
 				log.Tracef(
 					"Reimporting Public Keyring: %s",
 					cfg.Files.Pubring,
 				)
-				Pubring.ImportPubring()
+				if err := importPubring(); err != nil {
+					log.Warnf("Importing %s: %s", cfg.Files.Pubring, err)
+				}
 			}
 			checkPublishedKeys(secret, time.Now())
 			// Report throughput
