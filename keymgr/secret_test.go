@@ -70,19 +70,18 @@ func TestPurgeRemovesPurgedKey(t *testing.T) {
 // TestPurgeWritesUTCDates checks that Purge writes the same UTC dates as
 // WriteSecret and WritePublic, whatever the local time zone.
 func TestPurgeWritesUTCDates(t *testing.T) {
-	oldLocal := time.Local
-	time.Local = time.FixedZone("UTC-5", -5*3600)
-	t.Cleanup(func() { time.Local = oldLocal })
 	s := newTestSecring(t)
-	// 02:00 UTC on Nov 4 is 21:00 on Nov 3 in UTC-5.
-	until := time.Date(2026, 11, 4, 2, 0, 0, 0, time.UTC).In(time.Local)
+	// 02:00 UTC on Nov 4 is 21:00 on Nov 3 in UTC-5.  (Not by setting
+	// time.Local: that races with timers running in the process.)
+	until := time.Date(2026, 11, 4, 2, 0, 0, 0, time.UTC).In(time.FixedZone("UTC-5", -5*3600))
 	addSecret(s, 3, until.AddDate(0, 0, -14), until)
 	s.Purge()
 	b, _ := os.ReadFile(s.secringFile)
 	if !strings.Contains(string(b), "Created: 2026-10-21\nExpires: 2026-11-04\n") {
 		t.Errorf("Purge didn't write UTC dates:\n%s", b)
 	}
-	// Insert stores UTC times too.
+	// Insert stores UTC times too.  time.Local is never time.UTC, so this
+	// fails without the conversion even on a machine in UTC.
 	id := s.Insert(bytes.Repeat([]byte{4}, 32), bytes.Repeat([]byte{5}, 32))
 	if loc := s.sec[id].from.Location(); loc != time.UTC {
 		t.Errorf("Insert stores times in %s", loc)
