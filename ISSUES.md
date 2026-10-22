@@ -6,7 +6,7 @@ to that branch at commit `788b526`.
 Status values: **open**, **in progress**, **fixed** (with commit).
 
 Y-23 to Y-52 come from a second review of `master` at `15acb78`
-(2026-10-21; crypto/packets, mail/network, client/config). Y-53 and Y-54
+(2026-10-21; crypto/packets, mail/network, client/config). Y-53 to Y-55
 were found later. Each status line names the tests that came with the fix.
 
 | ID | Severity | Summary | Status |
@@ -65,6 +65,7 @@ were found later. Each status line names the tests that came with the fix.
 | [Y-52](#y-52-crypto-notes-no-action-needed) | Info | Crypto notes (no action needed) | no action |
 | [Y-53](#y-53-mail-with-several-recipients-goes-to-smtp_relay) | Medium | Mail with several recipients goes to `smtp_relay` | fixed (da315a3) |
 | [Y-54](#y-54-mail-to-onion-hosts-cant-be-delivered) | Low | Mail to `.onion` hosts can't be delivered | fixed (436880c, ab102ec) |
+| [Y-55](#y-55-one-line-over-64-kb-makes-a-whole-keyring-or-stats-file-unusable) | Medium | One line over 64 KB makes a whole keyring or stats file unusable | fixed (86774a6) |
 
 ---
 
@@ -577,6 +578,31 @@ were found later. Each status line names the tests that came with the fix.
   default `fleegle.mixmin.net`. Tests: `TestMXSendPerDomain`,
   `TestMXSendPartialRetry`, `TestPoolDoneNotForgeable`,
   `TestParseInternalHeader`, `TestDeliveryFailures`, `TestNagDefaultRelay`.
+
+### Y-55: One line over 64 KB makes a whole keyring or stats file unusable
+
+- **Where:** `keymgr/public.go` (`readPubring`, `readStats`, `Headers`);
+  used by `ImportPubring`, `ImportStats`, the download checks and the
+  multi-pinger merge.
+- **Impact:** the readers used a plain `bufio.Scanner`, which stops with
+  `token too long` at the first line over 64 KB. One such line made the
+  whole `pubring.mix` or `mlist2.txt` unusable: the download check rejected
+  it, so the old file stayed until its keys expired, and with
+  `urls.pingers` that pinger was dropped from the merge. A remailer can
+  put such a line into what pingers publish through the version or caps
+  field of its key, so one remailer could take out every pinger that lists
+  it. `Headers` ignored the error and cut the `remailer-conf` list short.
+- **Fix:** skip an overlong line as a whole, like other malformed lines, so
+  only that entry is lost. Its tail must not be read as a line of its own,
+  or it could carry a key header.
+- **Found:** 2026-10-22, reviewing go-echolot's key parser (go-echolot
+  PR #4), which accepted a 70,000-character caps field.
+- **Status:** fixed in `86774a6` (branch `fix/55-long-lines`).
+  `lineScanner` skips lines over 64 KB including their tail, and the
+  readers warn how many they skipped; `Headers` returns read errors.
+  `TestCheckLikeParser` now expects such a keyring to be accepted for its
+  other keys. Tests: `TestLineScanner`, `TestPubringLongLine`,
+  `TestStatsLongLine`.
 
 ## Low
 
