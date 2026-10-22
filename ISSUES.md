@@ -144,8 +144,15 @@ not part of the repository yet and come with the fixes.
     `urls.key_quorum` of them (default 2) publish it. A single pinger can no
     longer add or replace a key. On 2026-10-21 the three public pingers
     (mixmin, victor, frell) merged to the same six keys mixmin publishes.
+  - Done in `5020c1b` (branch `fix/03-published-key-check`): a remailer checks
+    the keyrings it downloads (each pinger's) and warns, once a day, when one
+    lists a key for its name or address that isn't in its secret keyring, or
+    its name with another address, or its address under another name. Tests:
+    `TestCheckPublishedKeys`, `TestCheckPublishedKeysPingers`,
+    `TestCheckPublishedKeysOncePerDay`.
   - Open: pingers still collect keys by unsigned mail, so a forged key that
-    reaches every pinger is accepted. Signed pinger output and key pinning
+    reaches every pinger is accepted; the remailer check above detects it,
+    for remailers that run this fork. Signed pinger output and key pinning
     are planned with the go-echolot pinger (see its design).
 
 ### Y-04: Next hop not validated; header injection at middle remailers
