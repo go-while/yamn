@@ -106,6 +106,23 @@ hourly statistics (needs loglevel info).
 .B "--nodummy"
 Don't send dummy messages.
 .TP
+.B "--pins"
+List the pinned remailer keys and the changes held by key pinning (see
+.BR "Key pinning" ),
+and exit.
+.TP
+.B "--pin-accept=\fIname"
+Accept the held change of the remailer
+.I name
+(or address) now: its new key, name or address is pinned and used.  Do this
+after checking the change with the remailer's operator.
+.TP
+.B "--pin-reject=\fIname"
+Keep the pinned key, name and address of the remailer
+.I name
+(or address).  Its held change isn't accepted automatically; it is
+forgotten once it hasn't been published for 30 days.
+.TP
 .B "-R, --read-mail"
 Read an incoming mail from STDIN and store it in the remailer's Maildir, as an
 MTA would deliver it.  STDIN may also hold an mbox of several mails, such as
@@ -368,6 +385,51 @@ Disagreements between pingers are logged (loglevel info), problems with a
 pinger as warnings.  A pinger that can't be reached keeps its last downloaded
 files.  Plain http URLs are warned about: anyone on the network path can
 change what is downloaded from them.
+.SS Key pinning
+A forged key that reaches every pinger gets past
+.BR urls.key_quorum .
+To notice it, yamn remembers each remailer's key, name and address as it
+first sees them, in
+.B files.keypins
+(default
+.IR keypins.json ),
+and checks every keyring it imports against them, clients and remailers
+alike.  A new key is a normal rotation, used at once, when the remembered
+key expires within 72 hours or already has: a yamn remailer makes its next
+key when the current one has 48 hours left.  These changes are unexpected:
+.IP \(bu 2
+a new key while the remembered one is valid for more than 72 hours,
+.IP \(bu 2
+a key created before the remembered one,
+.IP \(bu 2
+the remailer's address under another name,
+.IP \(bu 2
+its name with another address.
+.PP
+With
+.B "urls.key_pinning: hold"
+(the default), the remailer isn't used while such a change is held: it isn't
+chosen at random, a chain that names it fails, and yamn warns (a remailer
+once a day).  If the keyring still lists the remembered key, that one is
+used.  The change is accepted after 24 hours if it was seen again at least
+30 minutes after it first appeared and the remembered key or name hasn't
+come back since: while the real remailer still answers the pingers, they
+switch between its key and a forged one, and the forged one stays held.
+.B "yamn --pin-accept"
+accepts a change at once,
+.B "--pin-reject"
+keeps the old pin, and
+.B "--pins"
+lists both.
+.PP
+.B "key_pinning: warn"
+only warns and uses the new key;
+.B off
+doesn't check.  The first keyring yamn sees is trusted as it is.  A
+remailer that really changes its key early, for example after losing its
+secret keyring, is held for a day; mail goes through other remailers
+meanwhile.  Pins of remailers that are no longer listed are forgotten after
+90 days.
 .SS Where the files are
 The relative paths of the
 .B files

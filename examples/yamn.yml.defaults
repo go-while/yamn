@@ -61,6 +61,9 @@ files:
     # all). Read for every message, so edits apply immediately. A missing
     # file blocks nobody.
     dest_block: dest.blk
+    # Remailer keys, names and addresses as first seen, and changes held by
+    # urls.key_pinning. Written by yamn; list it with "yamn --pins".
+    keypins: keypins.json
 
 # Where yamn downloads the public keyring and stats from. A download only
 # replaces the local file if it looks valid.
@@ -85,6 +88,15 @@ urls:
     # they're used. With fewer usable keyrings, the current keyring is kept;
     # 1 trusts any one pinger.
     key_quorum: 2
+    # Key pinning: yamn remembers each remailer's key, name and address. A
+    # new key is normal when the remembered one expires within 72 hours.
+    # Other changes (a new key while the old one has longer, an older key, a
+    # name with another address, an address under another name) can come
+    # from a forged key reply to the pingers. With hold, the remailer isn't
+    # used until the change has been published for 24 hours, seen twice and
+    # the old key hasn't come back; "yamn --pin-accept NAME" accepts it at
+    # once. warn only logs the change; off doesn't check.
+    key_pinning: hold
 
 # How mail is sent. Clients and remailers both need this to work.
 mail:

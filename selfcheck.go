@@ -50,7 +50,7 @@ func checkPublishedKeys(secret *keymgr.Secring, now time.Time) (problems []strin
 		}
 		keys := keymgr.PublishedFor(content, name, addy, now)
 		if len(keys) == 0 {
-			publishedNote(now, fmt.Sprintf("%s doesn't list this remailer (%s) yet", src.label, name))
+			dailyNote(now, fmt.Sprintf("%s doesn't list this remailer (%s) yet", src.label, name))
 			continue
 		}
 		for _, k := range keys {
@@ -74,37 +74,37 @@ func checkPublishedKeys(secret *keymgr.Secring, now time.Time) (problems []strin
 				continue
 			}
 			problems = append(problems, p)
-			publishedWarn(now, p)
+			dailyWarn(now, p)
 		}
 	}
 	return
 }
 
-// Problems found by checkPublishedKeys are logged once a day, not at every
-// hourly check.
+// Problems found by the hourly checks (checkPublishedKeys, key pinning)
+// are logged once a day, not every hour.
 var (
-	publishedMu     sync.Mutex
-	publishedLogged = make(map[string]time.Time)
+	dailyMu     sync.Mutex
+	dailyLogged = make(map[string]time.Time)
 )
 
-func publishedWarn(now time.Time, msg string) {
-	if publishedDue(now, msg) {
+func dailyWarn(now time.Time, msg string) {
+	if dailyDue(now, msg) {
 		log.Warn(msg)
 	}
 }
 
-func publishedNote(now time.Time, msg string) {
-	if publishedDue(now, msg) {
+func dailyNote(now time.Time, msg string) {
+	if dailyDue(now, msg) {
 		log.Info(msg)
 	}
 }
 
-func publishedDue(now time.Time, msg string) bool {
-	publishedMu.Lock()
-	defer publishedMu.Unlock()
-	if last, ok := publishedLogged[msg]; ok && now.Sub(last) < 24*time.Hour {
+func dailyDue(now time.Time, msg string) bool {
+	dailyMu.Lock()
+	defer dailyMu.Unlock()
+	if last, ok := dailyLogged[msg]; ok && now.Sub(last) < 24*time.Hour {
 		return false
 	}
-	publishedLogged[msg] = now
+	dailyLogged[msg] = now
 	return true
 }
