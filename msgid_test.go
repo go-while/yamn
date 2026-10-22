@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"net/mail"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
+	_ "time/tzdata" // TZ=Asia/Kolkata works without system time zone files
 
 	"github.com/crooks/yamn/config"
 )
@@ -46,10 +49,10 @@ func TestNagInvalidMessageDomain(t *testing.T) {
 // TestMailDatesUTC checks that the Date and Message-ID an exit sets don't
 // show the remailer's time zone.
 func TestMailDatesUTC(t *testing.T) {
+	if !inTimeZone(t, "Asia/Kolkata") {
+		return
+	}
 	setupTestConfig(t)
-	oldLocal := time.Local
-	time.Local = time.FixedZone("Test", 5*3600+30*60)
-	t.Cleanup(func() { time.Local = oldLocal })
 	cfg.Mail.MXRelay = false
 	cfg.Mail.SMTPRelay = "localhost"
 	cfg.Files.Pooldir = t.TempDir()
@@ -100,4 +103,24 @@ func TestNagDefaultRelay(t *testing.T) {
 				tt.mxRelay, tt.sendmail, tt.relay, tt.pipe, got, tt.want)
 		}
 	}
+}
+
+// inTimeZone runs the calling test again in a child process with TZ set to
+// tz, and reports whether it is that child.  Setting time.Local in the test
+// itself races with every timer still running in the process, since each
+// one reads it when it fires.
+func inTimeZone(t *testing.T, tz string) bool {
+	t.Helper()
+	if os.Getenv("YAMN_TEST_TZ") == tz {
+		if _, offset := time.Now().Zone(); offset == 0 {
+			t.Fatalf("TZ=%s gives UTC", tz)
+		}
+		return true
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$", "-test.count=1")
+	cmd.Env = append(os.Environ(), "TZ="+tz, "YAMN_TEST_TZ="+tz)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("with TZ=%s: %v\n%s", tz, err, out)
+	}
+	return false
 }
