@@ -41,6 +41,8 @@ func loopServer() (err error) {
 	secret.SetExit(cfg.Remailer.Exit)
 	secret.SetValidity(cfg.Remailer.Keylife, cfg.Remailer.Keygrace)
 	secret.SetVersion(version)
+	// Check what the pingers publish for this remailer.
+	checkPublishedKeys(secret, time.Now())
 	// Create some dirs if they don't already exist
 	createDirs()
 
@@ -143,6 +145,7 @@ func loopServer() (err error) {
 				)
 				Pubring.ImportPubring()
 			}
+			checkPublishedKeys(secret, time.Now())
 			// Report throughput
 			stats.report()
 			if flag.MemInfo {

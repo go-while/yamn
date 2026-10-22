@@ -280,6 +280,19 @@ one anonymous message can't be fanned out to hundreds of addresses.  The limit
 is announced in the
 .B remailer-conf
 reply.
+.SS Keys the pingers publish
+Pingers collect remailer keys by unsigned mail, so a forged
+.B remailer-key
+reply can put a key into their keyrings that the remailer doesn't have.
+Clients would encrypt to whoever made it.  At startup and every hour, a
+remailer checks the keyring it downloads (with
+.BR urls.pingers ,
+each pinger's) and warns, once a day per problem, when it lists a key for
+the remailer's name or address that isn't in
+.BR files.secring ,
+the remailer's name with another address, or its address under another
+name.  Report such a warning to the pinger's operator.  A pinger that
+doesn't list the remailer yet is only noted (loglevel info).
 .SS Mail to .onion addresses
 With
 .B mail.tor_socks
