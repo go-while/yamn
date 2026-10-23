@@ -13,7 +13,7 @@ were found later. Each status line names the tests that came with the fix.
 |---|---|---|---|
 | [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | fixed (4f370cc) |
 | [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | fixed (6c0fb7e, f894bf0) |
-| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c; pinger quorum: de59490; remailer self-check: 5020c1b; key pinning: dca25ce) |
+| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c; pinger quorum: de59490; remailer self-check: 5020c1b; key pinning: dca25ce; pinger signatures: 481b89e) |
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | fixed (a4ad3ce) |
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | fixed (486f1e6) |
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
@@ -164,12 +164,25 @@ were found later. Each status line names the tests that came with the fix.
     `TestPinWarn`, `TestPinAcceptReject`, `TestPinRetention`,
     `TestPinStoreFile`, `TestImportPubringPinning`, `TestKeyPinning`,
     `TestKeyPinningReject`, `TestKeyPinningOff`.
-  - Open: pingers still collect keys by unsigned mail. A forged key that
-    reaches every pinger before a client first sees the remailer is
-    trusted on first use, and one that stays published long enough while
-    the real remailer doesn't answer is accepted after the hold. Signed
-    pinger output and proof of possession come with the go-echolot pinger
-    (see its design).
+  - Done in `481b89e` (branch `feat/03-pinger-signatures`): pinger
+    signatures. With a pinger's minisign key in `urls.pinger_keys` (or a
+    `urls.pingers` entry's `keys`), a downloaded keyring or stats file is
+    only used if `<url>.minisig` is a signature of it by that key, for that
+    file name, not expired, not from the future, not older than
+    `urls.max_signature_age_hours` and not older than the last one accepted
+    from that key (`files.sigstate`). `urls.require_signatures` refuses a
+    config with an unsigned pinger. Keys are listed in `doc/pingers.md`
+    (empty until a pinger signs). Tested against go-echolot's test vectors
+    and the reference minisign tool's signatures. Tests: `TestVectors`,
+    `TestVerify`, `TestParseSignatureErrors`, `TestParseTrusted`,
+    `TestParsePublicKeyErrors`, `TestPingerKeys`, `TestFetchSigned`,
+    `TestFetchSignedVectors`, `TestSignatureURL`, `TestRefreshKeyringSigned`.
+  - Open: the public pingers (Perl Echolot) don't sign, so signatures only
+    help once a go-echolot pinger runs and its key is in `doc/pingers.md`.
+    go-echolot also requires proof of possession (a returned ping) before
+    publishing a key, which closes the forged-reply path for its keyring.
+    A forged key that reaches the unsigned pingers is still only caught by
+    the quorum, key pinning and the remailer self-check.
 
 ### Y-04: Next hop not validated; header injection at middle remailers
 
