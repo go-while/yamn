@@ -25,3 +25,5 @@ mail:
 #          pubring: http://echolot.theremailer.net/yamn/pubring.mix
 #          mlist2: http://echolot.theremailer.net/yamn/mlist2.txt
 #    key_quorum: 2
+# A pinger that signs its files (go-echolot) gets its key from
+# doc/pingers.md in its entry: keys: ["RWQ..."]

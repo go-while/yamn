@@ -27,6 +27,9 @@ type Pinger struct {
 	Name    string `yaml:"name"`
 	Pubring string `yaml:"pubring"`
 	Mlist2  string `yaml:"mlist2"`
+	// The pinger's minisign public keys.  If set, its files must be
+	// signed by one of them.
+	Keys []string `yaml:"keys"`
 }
 
 type Config struct {
@@ -61,6 +64,8 @@ type Config struct {
 		DestBlock string `yaml:"dest_block"`
 		// Remembered remailer keys, names and addresses (key pinning)
 		Keypins string `yaml:"keypins"`
+		// The newest signature accepted per pinger key and file
+		Sigstate string `yaml:"sigstate"`
 	} `yaml:"files"`
 	Urls struct {
 		Fetch   bool   `yaml:"fetch"`
@@ -73,6 +78,13 @@ type Config struct {
 		// What to do when a remailer's key, name or address changes
 		// unexpectedly: hold, warn or off
 		KeyPinning string `yaml:"key_pinning"`
+		// The pinger's minisign public keys, for Pubring and Mlist2.  If
+		// set, both files must be signed by one of them.
+		PingerKeys []string `yaml:"pinger_keys"`
+		// Refuse a configuration in which a pinger has no keys
+		RequireSignatures bool `yaml:"require_signatures"`
+		// Refuse a signature older than this (0: only its expiry counts)
+		MaxSignatureAge int `yaml:"max_signature_age_hours"`
 	} `yaml:"urls"`
 	Mail struct {
 		Sendmail     bool   `yaml:"sendmail"`
@@ -400,7 +412,7 @@ func (c *Config) relativePaths() (rel []string) {
 		c.Files.Pubring, c.Files.Mlist2, c.Files.Pubkey, c.Files.Secring,
 		c.Files.Adminkey, c.Files.Help, c.Files.Pooldir, c.Files.Maildir,
 		c.Files.IDlog, c.Files.ChunkDB, c.Files.Logfile, c.Files.DestBlock,
-		c.Files.Keypins,
+		c.Files.Keypins, c.Files.Sigstate,
 	} {
 		if p != "" && !filepath.IsAbs(p) {
 			rel = append(rel, p)
@@ -466,11 +478,13 @@ func (f *Flags) newConfig() *Config {
 	c.Files.Logfile = "yamn.log"
 	c.Files.DestBlock = "dest.blk"
 	c.Files.Keypins = "keypins.json"
+	c.Files.Sigstate = "sigstate.json"
 	c.Urls.Fetch = true
 	c.Urls.Pubring = "https://www.mixmin.net/yamn/pubring.mix"
 	c.Urls.Mlist2 = "https://www.mixmin.net/yamn/mlist2.txt"
 	c.Urls.KeyQuorum = 2
 	c.Urls.KeyPinning = "hold"
+	c.Urls.MaxSignatureAge = 48
 	c.Mail.Sendmail = false
 	c.Mail.Outfile = false
 	c.Mail.SMTPRelay = DefaultSMTPRelay
@@ -596,6 +610,7 @@ func (c *Config) validate() error {
 	check(c.Urls.KeyQuorum >= 1, "urls.key_quorum must be at least 1, not %d", c.Urls.KeyQuorum)
 	check(slices.Contains([]string{"hold", "warn", "off"}, c.Urls.KeyPinning),
 		"urls.key_pinning must be hold, warn or off, not %q", c.Urls.KeyPinning)
+	errs = append(errs, c.checkPingerKeys()...)
 	if c.Mail.TorSocks != "" {
 		host, port, err := net.SplitHostPort(c.Mail.TorSocks)
 		n, perr := strconv.Atoi(port)
@@ -614,7 +629,7 @@ func (c *Config) resolvePaths(dir string) {
 		&c.Files.Pubkey, &c.Files.Pubring, &c.Files.Secring, &c.Files.Mlist2,
 		&c.Files.Adminkey, &c.Files.Help, &c.Files.Pooldir, &c.Files.Maildir,
 		&c.Files.IDlog, &c.Files.ChunkDB, &c.Files.Logfile, &c.Files.DestBlock,
-		&c.Files.Keypins,
+		&c.Files.Keypins, &c.Files.Sigstate,
 	} {
 		// A leading "~/" is the home directory, as in a shell.
 		*p = expandHome(*p)
