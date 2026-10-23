@@ -144,23 +144,9 @@ const (
 // written to a temporary file next to filename and renamed over it, so a
 // failed download or write never replaces a working file.
 func httpGet(url, filename string, validate func([]byte) error) (err error) {
-	client := &http.Client{Timeout: httpTimeout, CheckRedirect: noDowngrade}
-	res, err := client.Get(url)
+	content, err := download(url, maxDownloadBytes)
 	if err != nil {
 		return
-	}
-	defer res.Body.Close()
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		err = fmt.Errorf("%s: %s", url, res.Status)
-		return err
-	}
-	// Read one byte past the limit so an oversized file can be detected
-	content, err := io.ReadAll(io.LimitReader(res.Body, maxDownloadBytes+1))
-	if err != nil {
-		return
-	}
-	if len(content) > maxDownloadBytes {
-		return fmt.Errorf("%s: exceeds %d byte download limit", url, maxDownloadBytes)
 	}
 	if validate != nil {
 		if err = validate(content); err != nil {
@@ -168,6 +154,28 @@ func httpGet(url, filename string, validate func([]byte) error) (err error) {
 		}
 	}
 	return writeFileAtomic(filename, content, 0644)
+}
+
+// download returns the content of url, which must be at most limit bytes.
+func download(url string, limit int) (content []byte, err error) {
+	client := &http.Client{Timeout: httpTimeout, CheckRedirect: noDowngrade}
+	res, err := client.Get(url)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode > 299 {
+		return nil, fmt.Errorf("%s: %s", url, res.Status)
+	}
+	// Read one byte past the limit so an oversized file can be detected
+	content, err = io.ReadAll(io.LimitReader(res.Body, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > limit {
+		return nil, fmt.Errorf("%s: exceeds %d byte download limit", url, limit)
+	}
+	return content, nil
 }
 
 // noDowngrade is an http.Client CheckRedirect that refuses redirects from

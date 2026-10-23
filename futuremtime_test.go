@@ -41,7 +41,7 @@ func TestFetchFutureMtime(t *testing.T) {
 			t.Fatal(err)
 		}
 		hits.Store(0)
-		timedURLFetch(srv.URL, f, keymgr.CheckPubring)
+		timedURLFetch(srv.URL, f, keymgr.CheckPubring, nil)
 		if got := hits.Load() > 0; got != tt.fetch {
 			t.Errorf("%s: fetched %v, want %v", tt.name, got, tt.fetch)
 		}

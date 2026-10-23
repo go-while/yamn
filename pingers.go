@@ -6,12 +6,12 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/Masterminds/log-go"
 	"github.com/crooks/yamn/config"
 	"github.com/crooks/yamn/keymgr"
+	"github.com/crooks/yamn/minisign"
 )
 
 // validPingerName matches pinger names that are safe as file name suffixes.
@@ -37,33 +37,35 @@ func refreshKeyring(force bool) {
 	if !cfg.Urls.Fetch && !force {
 		return
 	}
-	fetch := func(url, filename string, validate func([]byte) error) {
+	fetch := func(url, filename string, validate func([]byte) error, keys []minisign.PublicKey) {
 		if url == "" {
 			return
 		}
-		if strings.HasPrefix(strings.ToLower(url), "http://") {
+		if plainHTTP(url) && len(keys) == 0 {
 			log.Warnf("%s is plain http: anyone on the network path can change the download", url)
 		}
 		if !force {
-			timedURLFetch(url, filename, validate)
+			timedURLFetch(url, filename, validate, keys)
 			return
 		}
 		log.Infof("Fetching %s and storing in %s", url, filename)
-		if err := httpGet(url, filename, validate); err != nil {
+		if err := fetchFile(url, filename, validate, keys); err != nil {
 			log.Warn(err)
 		}
 	}
 	if len(cfg.Urls.Pingers) == 0 {
-		fetch(cfg.Urls.Pubring, cfg.Files.Pubring, keymgr.CheckPubring)
-		fetch(cfg.Urls.Mlist2, cfg.Files.Mlist2, keymgr.CheckStats)
+		keys := pingerKeys(cfg.Urls.PingerKeys)
+		fetch(cfg.Urls.Pubring, cfg.Files.Pubring, keymgr.CheckPubring, keys)
+		fetch(cfg.Urls.Mlist2, cfg.Files.Mlist2, keymgr.CheckStats, keys)
 		return
 	}
 	var files []keymgr.PingerFiles
 	for _, p := range usablePingers(cfg.Urls.Pingers) {
 		pubFile := pingerFile(cfg.Files.Pubring, p.Name)
 		statsFile := pingerFile(cfg.Files.Mlist2, p.Name)
-		fetch(p.Pubring, pubFile, keymgr.CheckPubring)
-		fetch(p.Mlist2, statsFile, keymgr.CheckStats)
+		keys := pingerKeys(p.Keys)
+		fetch(p.Pubring, pubFile, keymgr.CheckPubring, keys)
+		fetch(p.Mlist2, statsFile, keymgr.CheckStats, keys)
 		files = append(files, keymgr.PingerFiles{
 			Name:    p.Name,
 			Pubring: readIfExists(pubFile),

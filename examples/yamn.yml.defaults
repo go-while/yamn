@@ -64,6 +64,9 @@ files:
     # Remailer keys, names and addresses as first seen, and changes held by
     # urls.key_pinning. Written by yamn; list it with "yamn --pins".
     keypins: keypins.json
+    # The newest pinger signature accepted for each pinger key and file, so
+    # an older signed file can't be served again. Written by yamn.
+    sigstate: sigstate.json
 
 # Where yamn downloads the public keyring and stats from. A download only
 # replaces the local file if it looks valid.
@@ -82,7 +85,8 @@ urls:
     # so one wrong or compromised pinger can't add or replace a key. Stats
     # are the median of the pingers' whose stats are at most
     # stats.stale_hours old, older ones filling in up to key_quorum. See
-    # yamn.yml.client for an example.
+    # yamn.yml.client for an example. An entry can also list the pinger's
+    # minisign public keys in "keys", as in pinger_keys below.
     pingers: []
     # How many pingers must publish a key, or stats for a remailer, before
     # they're used. With fewer usable keyrings, the current keyring is kept;
@@ -97,6 +101,20 @@ urls:
     # the old key hasn't come back; "yamn --pin-accept NAME" accepts it at
     # once. warn only logs the change; off doesn't check.
     key_pinning: hold
+    # The pinger's minisign public keys (the base64 line of its pinger.pub,
+    # checked against the list in doc/pingers.md), for pubring and mlist2.
+    # When set, a download is only used if <url>.minisig next to it is a
+    # signature of it by one of these keys, for this file name, not expired,
+    # not more than 30 minutes in the future and not older than the
+    # signature accepted before; otherwise the local copy is kept. With
+    # pingers, give each pinger its own keys instead.
+    pinger_keys: []
+    # Refuse to start unless every pinger (pinger_keys, or each entry in
+    # pingers) has keys.
+    require_signatures: false
+    # Refuse a signature made more than this many hours ago, even if it
+    # hasn't expired yet. 0: only its expiry counts.
+    max_signature_age_hours: 48
 
 # How mail is sent. Clients and remailers both need this to work.
 mail:

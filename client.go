@@ -15,6 +15,7 @@ import (
 
 	"github.com/Masterminds/log-go"
 	"github.com/crooks/yamn/crandom"
+	"github.com/crooks/yamn/minisign"
 	//"github.com/codahale/blake2"
 )
 
@@ -444,7 +445,7 @@ func injectDummy() {
 
 // TimedURLFetch attempts to read a url into a file if the file is more
 // than an hour old or doesn't exist.
-func timedURLFetch(url, filename string, validate func([]byte) error) {
+func timedURLFetch(url, filename string, validate func([]byte) error, keys []minisign.PublicKey) {
 	var err error
 	var stamp time.Time
 	var doFetch bool
@@ -461,7 +462,7 @@ func timedURLFetch(url, filename string, validate func([]byte) error) {
 		}
 		if doFetch {
 			log.Infof("Fetching %s and storing in %s", url, filename)
-			err = httpGet(url, filename, validate)
+			err = fetchFile(url, filename, validate, keys)
 			if err != nil {
 				log.Warn(err)
 			}

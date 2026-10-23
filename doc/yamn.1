@@ -383,8 +383,10 @@ If every pinger's statistics are older than that, yamn warns.
 .PP
 Disagreements between pingers are logged (loglevel info), problems with a
 pinger as warnings.  A pinger that can't be reached keeps its last downloaded
-files.  Plain http URLs are warned about: anyone on the network path can
-change what is downloaded from them.
+files.  Plain http URLs are warned about, unless the pinger signs its files
+(see
+.BR "Pinger signatures" ):
+anyone on the network path can change what is downloaded from them.
 .SS Key pinning
 A forged key that reaches every pinger gets past
 .BR urls.key_quorum .
@@ -430,6 +432,62 @@ remailer that really changes its key early, for example after losing its
 secret keyring, is held for a day; mail goes through other remailers
 meanwhile.  Pins of remailers that are no longer listed are forgotten after
 90 days.
+.SS Pinger signatures
+A pinger running go-echolot signs its files with a minisign key and
+publishes the signature next to each one, as
+.I pubring.mix.minisig
+and
+.IR mlist2.txt.minisig .
+Give yamn the pinger's public key, the base64 line of its
+.IR pinger.pub ,
+in
+.B urls.pinger_keys
+(for
+.B urls.pubring
+and
+.BR urls.mlist2 )
+or in the
+.B keys
+of its
+.B urls.pingers
+entry.  Take the key from the list in
+.I doc/pingers.md
+in yamn's repository, not from the pinger's web site: whoever can change the
+web site could change the key too.  With keys, a download is only used if:
+.IP \(bu 2
+.I <url>.minisig
+is a minisign signature of it by one of the keys, over the file and its
+trusted comment,
+.IP \(bu 2
+the trusted comment names the downloaded file (a signed
+.I mlist2.txt
+can't be served as
+.IR pubring.mix ),
+.IP \(bu 2
+it hasn't expired (a pinger signs a keyring for 48 hours and statistics for
+6 hours, and signs again at least every hour), it was made at most 30 minutes
+in the future, and not more than
+.B urls.max_signature_age_hours
+ago (default 48; 0 only checks the expiry),
+.IP \(bu 2
+it isn't older than the newest signature accepted before from the same key
+for the same file, kept in
+.B files.sigstate
+(default
+.IR sigstate.json ).
+So an older signed file can't be served again to roll back a key change.
+.PP
+Otherwise yamn warns and keeps its current copy.  A download between the
+pinger's writes of a file and of its signature doesn't match and is fetched
+again next time.  A pinger's new key starts with no record, so a pinger
+recovers from a clock that ran far ahead by changing its key.
+.PP
+.B "urls.require_signatures: true"
+refuses to start unless every pinger has keys.  Without it, pingers with
+keys are checked and those without aren't, so a signing pinger can be
+cross-checked with older ones.  A file downloaded before the keys were set
+stays in use until the next signed download replaces it; remove it to stop
+using it at once.
 .SS Where the files are
 The relative paths of the
 .B files
