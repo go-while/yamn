@@ -53,6 +53,7 @@ func main() {
 		fmt.Println(version)
 		os.Exit(0)
 	}
+	refusePrivileged()
 	// If the debug flag is set, print the config and exit
 	if flag.Debug {
 		if cfg.Files.Config != "" {
