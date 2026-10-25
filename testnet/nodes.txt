@@ -1,0 +1,30 @@
+# The test network: one yamn remailer per machine.  Name = the last two
+# octets of the IP; its domain is <name>.yamn.test and its remailer
+# address mix@<name>.yamn.test.
+#
+# roles (comma-separated):
+#   exit    the remailer delivers to final recipients (otherwise middleman)
+#   hub     serves the step 1 pubring.mix and mlist2.txt over http, holds
+#           the inbox (inbox@<name>.yamn.test) and runs the test client
+#   pinger  a go-echolot pinger runs here (step 2); tnode delivers
+#           pinger@ to its Maildir and serves its results at /pinger/
+#
+# name  ip            roles          os
+11101   10.10.11.101  exit,hub       AlmaLinux 9
+11102   10.10.11.102  middle,pinger  AlmaLinux 10
+11103   10.10.11.103  middle         Alpine 3.22
+11104   10.10.11.104  exit           Alpine 3.23
+11105   10.10.11.105  middle         Alpine 3.24
+11106   10.10.11.106  middle         Arch
+11107   10.10.11.107  exit,pinger    CentOS Stream 9
+11108   10.10.11.108  middle         CentOS Stream 10
+11109   10.10.11.109  middle         Debian 13
+11110   10.10.11.110  exit           Gentoo
+11111   10.10.11.111  middle         openEuler 25.03
+11112   10.10.11.112  middle         openSUSE Leap 15.6
+11113   10.10.11.113  exit           openSUSE Leap 16.0
+11114   10.10.11.114  middle,pinger  Rocky 9
+11115   10.10.11.115  middle         Rocky 10
+11116   10.10.11.116  exit           Ubuntu 24.04
+11117   10.10.11.117  middle         Ubuntu 25.04
+11118   10.10.11.118  middle         Ubuntu 26.04
