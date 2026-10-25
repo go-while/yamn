@@ -60,6 +60,12 @@ messages.  This option only has meaning when used with the
 .B "-M"
 option.
 .TP
+.B "--i-am-root"
+Run even as root, or on Windows as an administrator, with a warning.
+Without it yamn refuses; see
+.B "RUNNING YAMN"
+below.
+.TP
 .B "--keep-headers"
 In client mode, send the message's headers as they are.  Without it, yamn
 removes headers that could identify you before encrypting the message: anything
@@ -219,6 +225,9 @@ administrator, as SYSTEM, or with UAC off), and exits with 1; only
 works.  It never needs those rights: it listens on no port and only
 writes its own files.  A remailer reads mail sent by anyone, so a bug in
 it should reach no more than those files.
+.B --i-am-root
+runs it anyway and logs a warning at every start, e.g. in a container
+that has only root.
 .PP
 Run a remailer as a user of its own, e.g.:
 .PP
