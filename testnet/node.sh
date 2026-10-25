@@ -138,12 +138,21 @@ running() {
 	[ -f "$T/run/$1.pid" ] && kill -0 "$(cat "$T/run/$1.pid")" 2>/dev/null
 }
 
+# halt NAME: stop a supervised daemon, the loop and its child together.
+# "kill -TERM -PGID": dash and busybox don't take "kill -- -PGID", and
+# killing only the loop would leave the daemon running without it.
 halt() {
 	if running "$1"; then
-		kill -TERM -- "-$(cat "$T/run/$1.pid")" 2>/dev/null || kill -TERM "$(cat "$T/run/$1.pid")"
+		kill -TERM "-$(cat "$T/run/$1.pid")" 2>/dev/null || kill -TERM "$(cat "$T/run/$1.pid")"
 		echo "$1 stopped"
 	fi
 	rm -f "$T/run/$1.pid"
+}
+
+# strays: the daemons from bin/ still running without a supervisor (e.g.
+# left by an older node.sh), which would keep the pool and idlog locked.
+strays() {
+	pgrep -u "$(id -u)" -f "^$B/(yamn|tnode) " 2>/dev/null
 }
 
 start() {
@@ -163,6 +172,16 @@ start() {
 
 stop() {
 	for d in yamn www mx; do halt $d; done
+	sleep 1
+	p=$(strays)
+	if [ -n "$p" ]; then
+		echo "stopping strays: $(echo $p)"
+		kill -TERM $p 2>/dev/null
+		sleep 2
+		p=$(strays)
+		[ -n "$p" ] && kill -KILL $p 2>/dev/null
+	fi
+	return 0
 }
 
 status() {
@@ -171,6 +190,11 @@ status() {
 	for d in mx www yamn; do
 		if running $d; then s="$s $d:up"; elif [ -f "$T/log/$d.log" ]; then s="$s $d:DOWN"; fi
 	done
+	n=$(strays | wc -l | tr -d ' ')
+	w=0
+	running www && w=1
+	# One mx and one yamn, plus www where it runs; more means strays.
+	[ "$n" -gt $((2 + w)) ] && s="$s | $n daemon processes, expected $((2 + w)): strays"
 	count() { ls "$1" 2>/dev/null | wc -l | tr -d ' '; }
 	echo "$NAME:$s | pool $(count "$T/remailer/pool") | maildir new $(count "$T/remailer/Maildir/new") | spool $(count "$T/mx/spool") | key $(head -c 40 "$T/remailer/key.txt" 2>/dev/null | cut -d' ' -f1-3)"
 }
