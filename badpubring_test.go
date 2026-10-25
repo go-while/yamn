@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/crooks/yamn/idlog"
 	"github.com/crooks/yamn/keymgr"
 )
 
@@ -48,7 +47,7 @@ func setupBadAddressRing(t *testing.T) (middle *testRemailer) {
 	if err := Pubring.ImportPubring(); err != nil {
 		t.Fatal(err)
 	}
-	IDDb = idlog.NewIDLog(filepath.Join(dir, "idlog"), 16)
+	IDDb = openTestIDLog(t, filepath.Join(dir, "idlog"), 16)
 	t.Cleanup(IDDb.Close)
 	return middle
 }

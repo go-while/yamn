@@ -11,19 +11,21 @@ type IDLog struct {
 	validity time.Duration // Days before an entry is expired
 }
 
-func NewIDLog(filename string, days int) *IDLog {
+// NewIDLog opens the ID log in filename, whose entries are valid for days.
+// The database can be open in only one process at a time: a second one
+// gets the lock error.
+func NewIDLog(filename string, days int) (*IDLog, error) {
 	if days < 1 {
-		err := errors.New("Invalid validity days. Must be 1 or more")
-		panic(err)
+		return nil, errors.New("invalid validity days, must be 1 or more")
 	}
 	iddb, err := leveldb.OpenFile(filename, nil)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	return &IDLog{
 		db:       iddb,
 		validity: time.Duration(24*days) * time.Hour,
-	}
+	}, nil
 }
 
 func (i *IDLog) Close() {

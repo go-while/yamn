@@ -6,7 +6,7 @@ to that branch at commit `788b526`.
 Status values: **open**, **in progress**, **fixed** (with commit).
 
 Y-23 to Y-52 come from a second review of `master` at `15acb78`
-(2026-10-21; crypto/packets, mail/network, client/config). Y-53 to Y-56
+(2026-10-21; crypto/packets, mail/network, client/config). Y-53 to Y-57
 were found later. Each status line names the tests that came with the fix.
 
 | ID | Severity | Summary | Status |
@@ -67,6 +67,7 @@ were found later. Each status line names the tests that came with the fix.
 | [Y-54](#y-54-mail-to-onion-hosts-cant-be-delivered) | Low | Mail to `.onion` hosts can't be delivered | fixed (436880c, ab102ec) |
 | [Y-55](#y-55-one-line-over-64-kb-makes-a-whole-keyring-or-stats-file-unusable) | Medium | One line over 64 KB makes a whole keyring or stats file unusable | fixed (86774a6) |
 | [Y-56](#y-56-yamn-runs-as-root-without-complaint) | Low | yamn runs as root without complaint | fixed (c8a0cd4, d30f12b) |
+| [Y-57](#y-57-a-second-remailer-on-the-same-files-panics) | Low | A second remailer on the same files panics | fixed (c27ca3b) |
 
 ---
 
@@ -1090,6 +1091,27 @@ were found later. Each status line names the tests that came with the fix.
   warning at every start. yamn(1) has a new RUNNING YAMN section. Tests:
   `TestRootIDs`, `TestPrivilegeVerdict`; the Windows check is cross-built
   only.
+
+### Y-57: A second remailer on the same files panics
+
+- **Where:** `idlog/idlog.go` (`NewIDLog`), `chunker.go` (`OpenChunk`),
+  called from `loopServer` in `server.go`.
+- **Impact:** the ID log and the chunk database are leveldb databases,
+  which one process at a time can open. A second remailer started with
+  the same files panicked with `resource temporarily unavailable` (exit
+  status 2) instead of saying why. Under a supervisor that restarts it,
+  it crash-looped: on the test network, where an older stop script left
+  the first remailer running, 3864 restarts in 11 hours, with a stack
+  trace each time.
+- **Fix:** return the open error and exit with status 1, with a message
+  that points at a second remailer when the database is locked.
+- **Found:** 2026-10-25, on the test network (`testnet/`).
+- **Status:** fixed in `c27ca3b` (branch `fix/57-idlog-locked`).
+  `idlog.NewIDLog` and `OpenChunk` return errors (an invalid number of
+  days too); the remailer logs `ID log <file> is locked by another
+  process: is another yamn remailer running with these files?` and exits
+  with 1. Tested with two remailers on one directory. Tests:
+  `TestDBLocked`, `TestNewIDLogLocked`, `TestNewIDLogInvalidDays`.
 
 ## Info
 

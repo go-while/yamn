@@ -9,21 +9,29 @@ import (
 func newTestIDLog(t *testing.T) (*IDLog, string) {
 	t.Helper()
 	filename := filepath.Join(t.TempDir(), "idlog")
-	i := NewIDLog(filename, 1)
+	i, err := NewIDLog(filename, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(i.Close)
 	return i, filename
 }
 
 func TestNewIDLogInvalidDays(t *testing.T) {
 	for _, days := range []int{0, -1} {
-		func() {
-			defer func() {
-				if recover() == nil {
-					t.Errorf("NewIDLog with %d days should panic", days)
-				}
-			}()
-			NewIDLog(filepath.Join(t.TempDir(), "idlog"), days)
-		}()
+		if _, err := NewIDLog(filepath.Join(t.TempDir(), "idlog"), days); err == nil {
+			t.Errorf("NewIDLog with %d days: no error", days)
+		}
+	}
+}
+
+// TestNewIDLogLocked checks that an ID log open elsewhere gives an error,
+// not a panic.
+func TestNewIDLogLocked(t *testing.T) {
+	_, filename := newTestIDLog(t)
+	if i, err := NewIDLog(filename, 1); err == nil {
+		i.Close()
+		t.Error("a second open succeeded")
 	}
 }
 
@@ -52,11 +60,16 @@ func TestForget(t *testing.T) {
 // TestUniquePersists checks that replay protection survives a restart.
 func TestUniquePersists(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "idlog")
-	i := NewIDLog(filename, 1)
+	i, err := NewIDLog(filename, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	i.Unique([]byte("packet-1"))
 	i.Close()
 
-	i = NewIDLog(filename, 1)
+	if i, err = NewIDLog(filename, 1); err != nil {
+		t.Fatal(err)
+	}
 	defer i.Close()
 	if i.Unique([]byte("packet-1")) {
 		t.Fatal("Key should still be known after reopening the ID log")

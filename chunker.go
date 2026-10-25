@@ -20,13 +20,14 @@ type Chunk struct {
 	deleteDays time.Duration // Age of partial files before deletion
 }
 
-// OpenChunk opens a levelDB database file
-func OpenChunk(filename string) *Chunk {
+// OpenChunk opens the chunk database.  It can be open in only one process
+// at a time: a second one gets the lock error.
+func OpenChunk(filename string) (*Chunk, error) {
 	levelDB, err := leveldb.OpenFile(filename, nil)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return &Chunk{db: levelDB}
+	return &Chunk{db: levelDB}, nil
 }
 
 // Close closes the levelDB
