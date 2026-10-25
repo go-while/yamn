@@ -67,6 +67,8 @@ setup() {
 		mkdir -p "$T/www" "$T/inbox/Maildir" "$T/client"
 		cat >"$T/client/yamn.yml" <<-EOF
 		# yamn test network: client on $NAME (written by node.sh setup)
+		general:
+		    loglevel: info
 		mail:
 		    smtp_relay: 127.0.0.1
 		    smtp_port: "2525"
@@ -82,6 +84,8 @@ setup() {
 				cat <<-EOF
 				# yamn test network: client on $NAME using the pingers in
 				# pingers.txt (written by node.sh setup)
+				general:
+				    loglevel: info
 				mail:
 				    smtp_relay: 127.0.0.1
 				    smtp_port: "2525"
