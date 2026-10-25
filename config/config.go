@@ -176,6 +176,8 @@ type Flags struct {
 	KeepReplyTo bool
 	Version     bool
 	MemInfo     bool
+	// Run even as root or a Windows administrator
+	IAmRoot bool
 	// Key pinning: list the pins, accept or reject a held change
 	Pins      bool
 	PinAccept string
@@ -280,6 +282,8 @@ func ParseFlags() *Flags {
 	flag.BoolVar(&f.Debug, "debug", false, "Print detailed config")
 	// Memory usage
 	flag.BoolVar(&f.MemInfo, "meminfo", false, "Log memory use with the hourly stats (loglevel info)")
+	// Root check
+	flag.BoolVar(&f.IAmRoot, "i-am-root", false, "Run even as root (Windows: as administrator), with a warning")
 	// Refresh remailer stats files
 	flag.BoolVar(&f.Refresh, "refresh", false, "Refresh remailer stats files")
 	// Key pinning

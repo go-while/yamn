@@ -60,6 +60,12 @@ messages.  This option only has meaning when used with the
 .B "-M"
 option.
 .TP
+.B "--i-am-root"
+Run even as root, or on Windows as an administrator, with a warning.
+Without it yamn refuses; see
+.B "RUNNING YAMN"
+below.
+.TP
 .B "--keep-headers"
 In client mode, send the message's headers as they are.  Without it, yamn
 removes headers that could identify you before encrypting the message: anything
@@ -212,6 +218,31 @@ that can't be built, no To, Cc or Bcc address, or more than two arguments.
 Every chunk and copy is encrypted before the first one is pooled, so after
 an error nothing of the message is sent.  A dummy message that can't be
 built only gives a warning.
+.SH RUNNING YAMN
+yamn refuses to run as root, and on Windows as an administrator (run as
+administrator, as SYSTEM, or with UAC off), and exits with 1; only
+.B --version
+works.  It never needs those rights: it listens on no port and only
+writes its own files.  A remailer reads mail sent by anyone, so a bug in
+it should reach no more than those files.
+.B --i-am-root
+runs it anyway and logs a warning at every start, e.g. in a container
+that has only root.
+.PP
+Run a remailer as a user of its own, e.g.:
+.PP
+.RS
+.nf
+useradd --system --create-home --home-dir /var/lib/yamn yamn
+su -s /bin/sh yamn -c 'yamn --dir /var/lib/yamn -M -D'
+.fi
+.RE
+.PP
+or with
+.B User=yamn
+in its systemd unit.  A remailer that ran as root before needs its files
+handed over first, e.g.
+.BR "chown -R yamn: /var/lib/yamn" .
 .SH CONFIGURATION
 yamn reads a YAML configuration file.  It uses the first one it finds of:
 .IP 1. 4
