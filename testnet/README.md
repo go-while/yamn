@@ -60,3 +60,25 @@ time (`PAR=`). On a node, everything is in `~yamn-test/testnet`: `bin/`,
 `remailer/` (the yamn directory), `mx/spool`, `log/`, `run/` (pid files)
 and, on the hub, `www/`, `inbox/` and `client/`. [`node.sh`](node.sh)
 does the work there and can be run by hand as `yamn-test`.
+
+## Forged-key test (go-echolot phase 4 milestone)
+
+Run on 2026-10-25 with the three go-echolot pingers (11102, 11107, 11114).
+go-echolot's session wrote a copy of 11114's `pubring.mix` in which
+`mix@11103.yamn.test` has another key (`907bb07d` → `691a0cb7`, a new
+public key with a matching keyid), signed with 11114's real key and the
+daemon's trusted comment, at `/var/lib/go-echolot/results/forged/`
+(served at `http://10.10.11.114:8080/pinger/forged/`; the pingers
+themselves never read it). On the hub, `fclient` is a copy of `pclient`
+with pinger 11114 pointed there:
+
+| Case | Pingers reachable | Result |
+|---|---|---|
+| 1 | 11102, 11107 (honest), 11114 (forged) | 11103 keeps `907bb07d` (11102 + 11107); log: `pingers disagree: 11103 691a0cb7 (11114); 11103 907bb07d (11102, 11107)` |
+| 2 | 11107 (honest), 11114 (forged) | neither key reaches quorum 2: 11103 is left out; the 15 keys both agree on are used |
+| 3 | 11114 (forged) only | `only 1 of 3 pinger(s) have a usable keyring, key_quorum is 2; keeping the current one`; keyring unchanged |
+
+The forged key was in no merged keyring. For case 2 and 3, the down
+pingers' stored copies were removed first: a pinger that is down keeps
+counting with its last accepted copy until its signature expires (48 hours
+for go-echolot's keyrings).
