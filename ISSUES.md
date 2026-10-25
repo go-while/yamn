@@ -188,6 +188,14 @@ were found later. Each status line names the tests that came with the fix.
     expired nor older than `urls.max_signature_age_hours`. Found reviewing
     go-echolot PR #18. Tests: `TestSignedOnly`,
     `TestRefreshKeyringStaleSigned`.
+  - Tested live in `0c58fcf` (branch `feat/testnet`, `testnet/README.md`):
+    on a private network of 18 yamn remailers with three go-echolot
+    pingers, a client with `urls.pingers`, `key_quorum: 2` and
+    `require_signatures` merged the pingers' signed keyrings. With one
+    pinger serving a forged key signed by its real key, the real key was
+    kept (two honest pingers), the remailer was left out (one honest), or
+    the current keyring was kept (none); the forged key was never used.
+    This is go-echolot's phase 4 milestone.
   - Open: the public pingers (Perl Echolot) don't sign, so signatures only
     help once a go-echolot pinger runs and its key is in `doc/pingers.md`.
     go-echolot also requires proof of possession (a returned ping) before
