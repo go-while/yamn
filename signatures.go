@@ -21,7 +21,9 @@ import (
 // configured for a download, it's only used if the signature verifies
 // with one of them, names the file, hasn't expired, isn't from the future
 // or older than urls.max_signature_age_hours, and isn't older than the
-// newest signature accepted before by that key for that file.
+// newest signature accepted before by that key for that file.  The
+// signature is stored next to the file, so with urls.pingers a pinger's
+// copy stops counting once it has expired or grown too old (signedOnly).
 
 const (
 	signatureSuffix = ".minisig"
@@ -46,7 +48,7 @@ func fetchFile(url, filename string, validate func([]byte) error, keys []minisig
 	if len(keys) == 0 {
 		return httpGet(url, filename, validate)
 	}
-	var accept func() error
+	var accept func(filename string) error
 	check := func(content []byte) error {
 		a, err := checkSignature(url, content, keys, cfg.Files.Sigstate, time.Now())
 		if err != nil {
@@ -63,7 +65,7 @@ func fetchFile(url, filename string, validate func([]byte) error, keys []minisig
 	if err := httpGet(url, filename, check); err != nil {
 		return err
 	}
-	return accept()
+	return accept(filename)
 }
 
 // signatureURL returns the URL of rawURL's signature, and the file name the
@@ -83,9 +85,10 @@ func signatureURL(rawURL string) (sigURL, name string, err error) {
 }
 
 // checkSignature downloads and checks the signature of content, fetched
-// from url.  It returns a function that records the signature as the
-// newest accepted, to be called once the file is in place.
-func checkSignature(url string, content []byte, keys []minisign.PublicKey, stateFile string, now time.Time) (accept func() error, err error) {
+// from url.  It returns a function to call once the file is in place as
+// filename: it stores the signature next to it and records it as the
+// newest accepted.
+func checkSignature(url string, content []byte, keys []minisign.PublicKey, stateFile string, now time.Time) (accept func(filename string) error, err error) {
 	sigURL, name, err := signatureURL(url)
 	if err != nil {
 		return
@@ -106,17 +109,8 @@ func checkSignature(url string, content []byte, keys []minisign.PublicKey, state
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", sigURL, err)
 	}
-	when := func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") }
-	switch maxAge := time.Duration(cfg.Urls.MaxSignatureAge) * time.Hour; {
-	case t.File != name:
-		return nil, fmt.Errorf("%s: signature is for %q, not %q", sigURL, t.File, name)
-	case !now.Before(t.Expires):
-		return nil, fmt.Errorf("%s: signature expired at %s", sigURL, when(t.Expires))
-	case t.Timestamp.After(now.Add(maxSignatureSkew)):
-		return nil, fmt.Errorf("%s: signature made in the future, at %s", sigURL, when(t.Timestamp))
-	case maxAge > 0 && now.Sub(t.Timestamp) > maxAge:
-		return nil, fmt.Errorf("%s: signature made at %s, more than %d hours ago",
-			sigURL, when(t.Timestamp), cfg.Urls.MaxSignatureAge)
+	if err := checkTrusted(t, name, now); err != nil {
+		return nil, fmt.Errorf("%s: %w", sigURL, err)
 	}
 	id := sigStateID(key.ID, t.File)
 	state, err := loadSigState(stateFile)
@@ -127,8 +121,13 @@ func checkSignature(url string, content []byte, keys []minisign.PublicKey, state
 		return nil, fmt.Errorf("%s: signature made at %s, older than the one accepted before (%s)",
 			sigURL, when(t.Timestamp), when(time.Unix(last, 0)))
 	}
-	accept = func() error {
+	accept = func(filename string) error {
 		log.Debugf("%s: signed by %s at %s", url, key.ID, when(t.Timestamp))
+		// After the file: a crash in between leaves a signature that
+		// doesn't match, and the file doesn't count until the next fetch.
+		if err := writeFileAtomic(filename+signatureSuffix, sigData, 0644); err != nil {
+			return err
+		}
 		// Read the state again: another yamn process may have written it.
 		state, err := loadSigState(stateFile)
 		if err != nil {
@@ -141,6 +140,68 @@ func checkSignature(url string, content []byte, keys []minisign.PublicKey, state
 		return state.save(stateFile)
 	}
 	return accept, nil
+}
+
+func when(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") }
+
+// checkTrusted checks a verified trusted comment: it names the file name,
+// hasn't expired, isn't from the future and isn't older than
+// urls.max_signature_age_hours.
+func checkTrusted(t minisign.Trusted, name string, now time.Time) error {
+	switch maxAge := time.Duration(cfg.Urls.MaxSignatureAge) * time.Hour; {
+	case t.File != name:
+		return fmt.Errorf("signature is for %q, not %q", t.File, name)
+	case !now.Before(t.Expires):
+		return fmt.Errorf("signature expired at %s", when(t.Expires))
+	case t.Timestamp.After(now.Add(maxSignatureSkew)):
+		return fmt.Errorf("signature made in the future, at %s", when(t.Timestamp))
+	case maxAge > 0 && now.Sub(t.Timestamp) > maxAge:
+		return fmt.Errorf("signature made at %s, more than %d hours ago", when(t.Timestamp), cfg.Urls.MaxSignatureAge)
+	}
+	return nil
+}
+
+// signedOnly returns content, a pinger's copy of a file downloaded from
+// rawURL into filename, if the signature stored next to it still holds:
+// it verifies with one of keys and checkTrusted accepts it.  Otherwise it
+// warns and returns nil, so the copy doesn't count in the merge.  Without
+// this, a pinger whose downloads are refused from some point on would keep
+// voting with its last accepted keyring until those keys expire.
+func signedOnly(pinger, filename, rawURL string, content []byte, keys []minisign.PublicKey, now time.Time) []byte {
+	if content == nil {
+		return nil
+	}
+	if err := storedSignature(filename, rawURL, content, keys, now); err != nil {
+		log.Warnf("Pinger %s: not using %s: %v", pinger, filename, err)
+		return nil
+	}
+	return content
+}
+
+func storedSignature(filename, rawURL string, content []byte, keys []minisign.PublicKey, now time.Time) error {
+	_, name, err := signatureURL(rawURL)
+	if err != nil {
+		return err
+	}
+	sigData, err := os.ReadFile(filename + signatureSuffix)
+	if errors.Is(err, fs.ErrNotExist) {
+		return errors.New("no signature stored with it")
+	}
+	if err != nil {
+		return err
+	}
+	sig, err := minisign.ParseSignature(sigData)
+	if err != nil {
+		return err
+	}
+	if _, err := sig.Verify(keys, content); err != nil {
+		return err
+	}
+	t, err := minisign.ParseTrusted(sig.Trusted)
+	if err != nil {
+		return err
+	}
+	return checkTrusted(t, name, now)
 }
 
 // sigState holds the newest timestamp accepted per pinger key and file,

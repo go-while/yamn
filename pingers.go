@@ -66,10 +66,16 @@ func refreshKeyring(force bool) {
 		keys := pingerKeys(p.Keys)
 		fetch(p.Pubring, pubFile, keymgr.CheckPubring, keys)
 		fetch(p.Mlist2, statsFile, keymgr.CheckStats, keys)
+		pub, stats := readIfExists(pubFile), readIfExists(statsFile)
+		if len(keys) > 0 {
+			now := time.Now()
+			pub = signedOnly(p.Name, pubFile, p.Pubring, pub, keys, now)
+			stats = signedOnly(p.Name, statsFile, p.Mlist2, stats, keys, now)
+		}
 		files = append(files, keymgr.PingerFiles{
 			Name:    p.Name,
-			Pubring: readIfExists(pubFile),
-			Stats:   readIfExists(statsFile),
+			Pubring: pub,
+			Stats:   stats,
 		})
 	}
 	mergePingerFiles(files)

@@ -513,12 +513,30 @@ pinger's writes of a file and of its signature doesn't match and is fetched
 again next time.  A pinger's new key starts with no record, so a pinger
 recovers from a clock that ran far ahead by changing its key.
 .PP
+yamn stores the signature of each accepted file next to it, as
+.IR <file>.minisig .
+With
+.BR urls.pingers ,
+a signing pinger's copy only counts in the merge while that signature
+still holds: once it has expired or is more than
+.B urls.max_signature_age_hours
+old, the pinger is left out, with a warning, until a new signed download
+replaces it.  So a pinger that stops signing, or whose files are held
+back, can't keep voting with an old keyring.  If too few pingers are left
+for
+.BR urls.key_quorum ,
+the current keyring is kept.  A single pinger
+.RB ( urls.pubring )
+keeps its file in use, as there is nothing to replace it with.
+.PP
 .B "urls.require_signatures: true"
 refuses to start unless every pinger has keys.  Without it, pingers with
 keys are checked and those without aren't, so a signing pinger can be
-cross-checked with older ones.  A file downloaded before the keys were set
-stays in use until the next signed download replaces it; remove it to stop
-using it at once.
+cross-checked with older ones.  A pinger's file downloaded before its keys
+were set has no stored signature, so with
+.B urls.pingers
+it stops counting at once; a single pinger's file stays in use until the
+next signed download replaces it (remove it to stop using it at once).
 .SS Where the files are
 The relative paths of the
 .B files
