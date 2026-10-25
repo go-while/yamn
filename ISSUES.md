@@ -66,7 +66,7 @@ were found later. Each status line names the tests that came with the fix.
 | [Y-53](#y-53-mail-with-several-recipients-goes-to-smtp_relay) | Medium | Mail with several recipients goes to `smtp_relay` | fixed (da315a3) |
 | [Y-54](#y-54-mail-to-onion-hosts-cant-be-delivered) | Low | Mail to `.onion` hosts can't be delivered | fixed (436880c, ab102ec) |
 | [Y-55](#y-55-one-line-over-64-kb-makes-a-whole-keyring-or-stats-file-unusable) | Medium | One line over 64 KB makes a whole keyring or stats file unusable | fixed (86774a6) |
-| [Y-56](#y-56-yamn-runs-as-root-without-complaint) | Low | yamn runs as root without complaint | fixed (c8a0cd4) |
+| [Y-56](#y-56-yamn-runs-as-root-without-complaint) | Low | yamn runs as root without complaint | fixed (c8a0cd4, d30f12b) |
 
 ---
 
@@ -1065,11 +1065,13 @@ were found later. Each status line names the tests that came with the fix.
   running a remailer as its own user.
 - **Found:** 2026-10-24, testing master on 18 Linux distributions: the
   remailer smoke run as root went through without a warning.
-- **Status:** fixed in `c8a0cd4` (branch `feat/56-refuse-root`). yamn exits
-  with 1 when the real or effective user ID is 0, or on Windows when its
-  token is elevated or has the Administrators group active (UAC off);
-  `--version` still works. yamn(1) has a new RUNNING YAMN section. Tests:
-  `TestRootIDs`; the Windows check is cross-built only.
+- **Status:** fixed in `c8a0cd4` and `d30f12b` (branch `feat/56-refuse-root`).
+  yamn exits with 1 when the real or effective user ID is 0, or on Windows
+  when its token is elevated or has the Administrators group active (UAC
+  off); `--version` still works. `--i-am-root` runs it anyway, with a
+  warning at every start. yamn(1) has a new RUNNING YAMN section. Tests:
+  `TestRootIDs`, `TestPrivilegeVerdict`; the Windows check is cross-built
+  only.
 
 ## Info
 
