@@ -53,6 +53,9 @@ func main() {
 		fmt.Println(version)
 		os.Exit(0)
 	}
+	if w := checkPrivileged(flag.IAmRoot); w != "" {
+		cfg.Warnings = append(cfg.Warnings, w)
+	}
 	// If the debug flag is set, print the config and exit
 	if flag.Debug {
 		if cfg.Files.Config != "" {
