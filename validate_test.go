@@ -46,7 +46,7 @@ func setupChunkDb(t *testing.T) string {
 func setupChunkDbOnly(t *testing.T) {
 	t.Helper()
 	oldChunkDb := ChunkDb
-	ChunkDb = OpenChunk(filepath.Join(t.TempDir(), "chunkdb"))
+	ChunkDb = openTestChunk(t, filepath.Join(t.TempDir(), "chunkdb"))
 	ChunkDb.SetExpire(60)
 	t.Cleanup(func() {
 		ChunkDb.Close()

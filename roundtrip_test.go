@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/crooks/yamn/config"
-	"github.com/crooks/yamn/idlog"
 	"github.com/crooks/yamn/keymgr"
 )
 
@@ -77,7 +76,7 @@ func setupRoundTrip(t *testing.T) (middle, exit *testRemailer) {
 		t.Fatalf("Expected 2 remailers in pubring, got %d", Pubring.Count())
 	}
 
-	IDDb = idlog.NewIDLog(filepath.Join(dir, "idlog"), 14)
+	IDDb = openTestIDLog(t, filepath.Join(dir, "idlog"), 14)
 	t.Cleanup(IDDb.Close)
 	return
 }

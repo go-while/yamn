@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/crooks/yamn/idlog"
 	"github.com/crooks/yamn/keymgr"
 )
 
@@ -125,7 +124,7 @@ func setupRandomExits(t *testing.T) (middle *testRemailer, exits []*testRemailer
 	if err := Pubring.ImportPubring(); err != nil {
 		t.Fatal(err)
 	}
-	IDDb = idlog.NewIDLog(filepath.Join(dir, "idlog"), 14)
+	IDDb = openTestIDLog(t, filepath.Join(dir, "idlog"), 14)
 	t.Cleanup(IDDb.Close)
 	return
 }

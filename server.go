@@ -11,6 +11,7 @@ import (
 	"path"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Masterminds/log-go"
@@ -48,11 +49,18 @@ func loopServer() (err error) {
 	// Open the IDlog
 	log.Tracef("Opening ID Log: %s", cfg.Files.IDlog)
 	// NewInstance takes the filename and entry validity in days
-	IDDb = idlog.NewIDLog(cfg.Files.IDlog, replayLogDays())
+	var dbErr error
+	if IDDb, dbErr = idlog.NewIDLog(cfg.Files.IDlog, replayLogDays()); dbErr != nil {
+		log.Error(dbOpenError("ID log", cfg.Files.IDlog, dbErr))
+		os.Exit(1)
+	}
 	defer IDDb.Close()
 	// Open the chunk DB
 	log.Tracef("Opening the Chunk DB: %s", cfg.Files.ChunkDB)
-	ChunkDb = OpenChunk(cfg.Files.ChunkDB)
+	if ChunkDb, dbErr = OpenChunk(cfg.Files.ChunkDB); dbErr != nil {
+		log.Error(dbOpenError("chunk database", cfg.Files.ChunkDB, dbErr))
+		os.Exit(1)
+	}
 	ChunkDb.SetExpire(cfg.Remailer.ChunkExpire)
 
 	// Expire old entries in the ID Log
@@ -334,6 +342,16 @@ func nagOperator() {
 			cfg.Pool.Loop,
 		)
 	}
+}
+
+// dbOpenError explains why the database what in file couldn't be opened.
+// Each database can be open in one process only, so a lock held elsewhere
+// almost always means a second remailer running with the same files.
+func dbOpenError(what, file string, err error) string {
+	if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
+		return fmt.Sprintf("%s %s is locked by another process: is another yamn remailer running with these files? (%v)", what, file, err)
+	}
+	return fmt.Sprintf("Can't open the %s %s: %v", what, file, err)
 }
 
 func createDirs() {
