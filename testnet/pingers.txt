@@ -1,0 +1,11 @@
+# The go-echolot pingers of the test network (step 2): node and minisign
+# public key, the base64 line of its pinger.pub.  Like doc/pingers.md for
+# the public network, this list is the trust anchor: the keys are taken
+# from here, not from the pingers' web servers.  node.sh setup gives the
+# hub a second client, pclient, that uses these pingers with key_quorum 2
+# and require_signatures.
+#
+# node  key                                                       key ID
+11102   RWSjlAnwn0ihHXRcjz95IgZu0Khc25qp70LZmv1bwYKGdpVT+f0fCmEm  # 1DA1489FF00994A3
+11107   RWQUXBmZork0WqeqCquhpKiCeT/Ngj7wm8af0pUeEYHLAG62zZcqaW0h  # 5A34B9A299195C14
+11114   RWRkMT7AN5UNPPRNlss4VW1tBPBvd9o2WUYlbIqNaMjKrCbdbtT4vzgv  # 3C0D9537C03E3164

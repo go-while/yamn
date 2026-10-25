@@ -6,7 +6,10 @@
 #   node.sh setup NAME   write the configs for node NAME (from nodes.txt)
 #   node.sh init         create the remailer's keys (one remailer run)
 #   node.sh start|stop|restart|status
-#   node.sh send N       hub: send N test messages to the inbox
+#   node.sh send N [C]   hub: send N test messages to the inbox, with
+#                        client C: client (step 1 keyring, default) or
+#                        pclient (the pingers in pingers.txt)
+#   node.sh refresh [C]  hub: download C's keyring and stats now
 #   node.sh inbox        hub: list what arrived in the inbox
 set -u
 T=$HOME/testnet
@@ -73,6 +76,32 @@ setup() {
 		    pubring: http://$HUB:8080/pubring.mix
 		    mlist2: http://$HUB:8080/mlist2.txt
 		EOF
+		if [ -s "$T/pingers.txt" ]; then
+			mkdir -p "$T/pclient"
+			{
+				cat <<-EOF
+				# yamn test network: client on $NAME using the pingers in
+				# pingers.txt (written by node.sh setup)
+				mail:
+				    smtp_relay: 127.0.0.1
+				    smtp_port: "2525"
+				    mx_relay: false
+				urls:
+				    fetch: true
+				    key_quorum: 2
+				    require_signatures: true
+				    pingers:
+				EOF
+				awk '!/^#/ && NF >= 2 { print $1, $2 }' "$T/pingers.txt" | while read -r p key; do
+					ip=$(field "$p" 2)
+					[ -n "$ip" ] || die "pinger $p isn't in nodes.txt"
+					printf '        - name: "%s"\n' "$p"
+					printf '          pubring: http://%s:8080/pinger/pubring.mix\n' "$ip"
+					printf '          mlist2: http://%s:8080/pinger/mlist2.txt\n' "$ip"
+					printf '          keys: ["%s"]\n' "$key"
+				done
+			} >"$T/pclient/yamn.yml"
+		fi
 	fi
 	echo "$NAME: set up ($ROLES, exit=$EXIT, hub $HUB)"
 }
@@ -142,15 +171,23 @@ status() {
 	echo "$NAME:$s | pool $(count "$T/remailer/pool") | maildir new $(count "$T/remailer/Maildir/new") | spool $(count "$T/mx/spool") | key $(head -c 40 "$T/remailer/key.txt" 2>/dev/null | cut -d' ' -f1-3)"
 }
 
+client_dir() {
+	c=${1:-client}
+	case $c in client | pclient) ;; *) die "no client $c" ;; esac
+	[ -f "$T/$c/yamn.yml" ] || die "$c isn't set up here"
+	echo "$T/$c"
+}
+
 send() {
 	load
 	has_role hub || die "send runs on the hub"
 	n=${1:-1}
+	C=$(client_dir "${2:-}") || exit 1
 	i=1
 	while [ "$i" -le "$n" ]; do
-		printf 'Subject: testnet %s\n\nTest message %s of %s from the hub, %s.\n' \
-			"$i" "$i" "$n" "$(date -u '+%F %T UTC')" |
-			"$B/yamn" --config "$T/client/yamn.yml" --dir "$T/client" -m -S -t "inbox@$NAME.yamn.test"
+		printf 'Subject: testnet %s (%s)\n\nTest message %s of %s from the hub via %s, %s.\n' \
+			"$i" "${C##*/}" "$i" "$n" "${C##*/}" "$(date -u '+%F %T UTC')" |
+			"$B/yamn" --config "$C/yamn.yml" --dir "$C" -m -S -t "inbox@$NAME.yamn.test"
 		i=$((i + 1))
 	done
 }
@@ -172,7 +209,13 @@ start) start ;;
 stop) stop ;;
 restart) stop; sleep 1; start ;;
 status) status ;;
-send) send "${2:-1}" ;;
+send) send "${2:-1}" "${3:-}" ;;
+refresh)
+	load
+	C=$(client_dir "${2:-}") || exit 1
+	"$B/yamn" --config "$C/yamn.yml" --dir "$C" --refresh 2>&1 | grep -v 'plain http'
+	ls -l "$C"
+	;;
 inbox) inbox ;;
-*) die "usage: node.sh setup NAME | init | start | stop | restart | status | send N | inbox" ;;
+*) die "usage: node.sh setup NAME | init | start | stop | restart | status | send N [client|pclient] | refresh [client|pclient] | inbox" ;;
 esac

@@ -7,7 +7,8 @@
 #   testnet.sh init [NODE...]            create the remailers' keys
 #   testnet.sh keyring                   collect the keys into the hub's pubring.mix
 #   testnet.sh start|stop|restart|status [NODE...]
-#   testnet.sh send [N]                  N test messages from the hub to its inbox
+#   testnet.sh send [N] [client|pclient] N test messages from the hub to its inbox
+#   testnet.sh refresh [client|pclient]  the hub client's keyring download, now
 #   testnet.sh inbox                     what arrived
 #   testnet.sh log NODE [mx|www|yamn|remailer]
 #   testnet.sh clean [NODE...]           stop and remove ~$TUSER/testnet
@@ -65,7 +66,7 @@ _deploy)
 	# overwritten ("text file busy"), but it can be replaced.
 	scp -q -o BatchMode=yes build/yamn "$h:~$TUSER/testnet/bin/yamn.new"
 	scp -q -o BatchMode=yes build/tnode "$h:~$TUSER/testnet/bin/tnode.new"
-	scp -q -o BatchMode=yes nodes.txt node.sh "$h:~$TUSER/testnet/"
+	scp -q -o BatchMode=yes nodes.txt pingers.txt node.sh "$h:~$TUSER/testnet/"
 	$SSH "$h" "cd ~$TUSER/testnet/bin && chmod 755 yamn.new tnode.new && mv yamn.new yamn && mv tnode.new tnode && chown -R $TUSER: ~$TUSER/testnet"
 	on "$n" "sh node.sh setup $n"
 	;;
@@ -87,7 +88,8 @@ keyring)
 	$SSH "root@$(ip "$h")" "install -o $TUSER -m 0644 /tmp/testnet-pubring.mix ~$TUSER/testnet/www/pubring.mix && rm /tmp/testnet-pubring.mix"
 	on "$h" "bin/tnode mlist2 www && head -3 www/mlist2.txt"
 	;;
-send) on "$(hub)" "sh node.sh send ${2:-1}" ;;
+send) on "$(hub)" "sh node.sh send ${2:-1} ${3:-}" ;;
+refresh) on "$(hub)" "sh node.sh refresh ${2:-}" ;;
 inbox) on "$(hub)" "sh node.sh inbox" ;;
 log)
 	n=${2:?node}
@@ -96,5 +98,5 @@ log)
 	*) on "$n" "tail -50 log/${3:-yamn}.log" ;;
 	esac
 	;;
-*) sed -n '2,17s/^# \{0,1\}//p' "$0"; exit 2 ;;
+*) sed -n '2,18s/^# \{0,1\}//p' "$0"; exit 2 ;;
 esac
