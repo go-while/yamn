@@ -86,7 +86,9 @@ urls:
     # are the median of the pingers' whose stats are at most
     # stats.stale_hours old, older ones filling in up to key_quorum. See
     # yamn.yml.client for an example. An entry can also list the pinger's
-    # minisign public keys in "keys", as in pinger_keys below.
+    # minisign public keys in "keys", as in pinger_keys below. Then its copy
+    # only counts while the signature stored with it (<file>.minisig) has
+    # neither expired nor passed max_signature_age_hours.
     pingers: []
     # How many pingers must publish a key, or stats for a remailer, before
     # they're used. With fewer usable keyrings, the current keyring is kept;

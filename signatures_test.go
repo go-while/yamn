@@ -187,7 +187,7 @@ func TestFetchSignedVectors(t *testing.T) {
 			t.Errorf("%s: %v", f, err)
 			continue
 		}
-		if err := accept(); err != nil {
+		if err := accept(filepath.Join(t.TempDir(), f)); err != nil {
 			t.Error(err)
 		}
 		if _, err := checkSignature(srv.URL+"/"+f, content, keys, cfg.Files.Sigstate, signed.Add(49*time.Hour)); err == nil {
@@ -262,5 +262,127 @@ func TestRefreshKeyringSigned(t *testing.T) {
 	refreshKeyring(true)
 	if _, err := os.Stat(cfg.Files.Pubring); err != nil {
 		t.Errorf("keyring signed by pinger_keys not stored: %v", err)
+	}
+}
+
+// TestSignedOnly checks when a pinger's stored copy counts: only while the
+// signature stored next to it verifies, names the file and is neither
+// expired nor older than urls.max_signature_age_hours.
+func TestSignedOnly(t *testing.T) {
+	setupTestConfig(t)
+	k, other := minisigntest.NewKey(5), minisigntest.NewKey(6)
+	keys := testKeys(t, k)
+	content := []byte("keyring\n")
+	now := time.Now()
+	dir := t.TempDir()
+	url := "https://pinger.example/yamn/pubring.mix"
+	for _, c := range []struct {
+		name   string
+		sig    []byte // nil: no signature stored
+		data   []byte
+		maxAge int
+		ok     bool
+	}{
+		{"valid", k.Sign(content, minisigntest.Comment("pubring.mix", now.Add(-time.Hour), 48*time.Hour)), content, 48, true},
+		{"no signature", nil, content, 48, false},
+		{"other key", other.Sign(content, minisigntest.Comment("pubring.mix", now, 48*time.Hour)), content, 48, false},
+		{"changed file", k.Sign(content, minisigntest.Comment("pubring.mix", now, 48*time.Hour)), []byte("changed\n"), 48, false},
+		{"other file name", k.Sign(content, minisigntest.Comment("mlist2.txt", now, 48*time.Hour)), content, 48, false},
+		{"expired", k.Sign(content, minisigntest.Comment("pubring.mix", now.Add(-7*time.Hour), 6*time.Hour)), content, 48, false},
+		{"too old", k.Sign(content, minisigntest.Comment("pubring.mix", now.Add(-50*time.Hour), 72*time.Hour)), content, 48, false},
+		{"old, no age limit", k.Sign(content, minisigntest.Comment("pubring.mix", now.Add(-50*time.Hour), 72*time.Hour)), content, 0, true},
+	} {
+		cfg.Urls.MaxSignatureAge = c.maxAge
+		file := filepath.Join(dir, strings.ReplaceAll(c.name, " ", "-"))
+		os.Remove(file + signatureSuffix)
+		if c.sig != nil {
+			if err := os.WriteFile(file+signatureSuffix, c.sig, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got := signedOnly("p", file, url, c.data, keys, now)
+		if (got != nil) != c.ok {
+			t.Errorf("%s: used %v, want %v", c.name, got != nil, c.ok)
+		}
+	}
+	if signedOnly("p", filepath.Join(dir, "missing"), url, nil, keys, now) != nil {
+		t.Error("a missing file counts")
+	}
+}
+
+// TestRefreshKeyringStaleSigned checks that a signing pinger whose
+// downloads are refused stops counting once its stored signature expires,
+// instead of voting with its last accepted keyring until the keys expire.
+func TestRefreshKeyringStaleSigned(t *testing.T) {
+	setupTestConfig(t)
+	alpha, _ := pingerKey("alpha", 1)
+	beta, _ := pingerKey("beta", 2)
+	stats := []byte(pingerStats(
+		"alpha        000000000000    :10   ++++++++++++  100.0%  D",
+		"beta         000000000000    :20   ++++++++++++   99.0%  D",
+	))
+	now := time.Now()
+	type pinger struct {
+		name string
+		srv  *signedPinger
+		key  *minisigntest.Key
+		ring string
+	}
+	// beta reaches the quorum of 2 only with a and c.
+	ps := []*pinger{
+		{name: "a", srv: newSignedPinger(t), key: minisigntest.NewKey(11), ring: alpha + beta},
+		{name: "b", srv: newSignedPinger(t), key: minisigntest.NewKey(12), ring: alpha},
+		{name: "c", srv: newSignedPinger(t), key: minisigntest.NewKey(13), ring: alpha + beta},
+	}
+	cfg.Urls.KeyQuorum = 2
+	cfg.Urls.Pingers = nil
+	for _, p := range ps {
+		p.srv.publish("pubring.mix", []byte(p.ring), p.key, minisigntest.Comment("pubring.mix", now, 48*time.Hour))
+		p.srv.publish("mlist2.txt", stats, p.key, minisigntest.Comment("mlist2.txt", now, 6*time.Hour))
+		cfg.Urls.Pingers = append(cfg.Urls.Pingers, config.Pinger{
+			Name: p.name, Pubring: p.srv.URL + "/pubring.mix", Mlist2: p.srv.URL + "/mlist2.txt",
+			Keys: []string{p.key.Public()},
+		})
+	}
+	merged := func() string {
+		b, err := os.ReadFile(cfg.Files.Pubring)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	refreshKeyring(true)
+	if !strings.Contains(merged(), "beta@example.org") {
+		t.Fatal("beta, published by a and c, not merged")
+	}
+	for _, p := range ps {
+		if _, err := os.Stat(pingerFile(cfg.Files.Pubring, p.name) + signatureSuffix); err != nil {
+			t.Errorf("pinger %s: signature not stored: %v", p.name, err)
+		}
+	}
+
+	// c stops signing: its downloads are refused and its copy stays.  While
+	// the stored signature holds, c still counts.
+	c := ps[2]
+	c.srv.publish("pubring.mix", []byte(c.ring), nil, "")
+	c.srv.publish("mlist2.txt", stats, nil, "")
+	refreshKeyring(true)
+	if !strings.Contains(merged(), "beta@example.org") {
+		t.Error("beta dropped while c's stored signature still holds")
+	}
+
+	// Time passes: c's stored signature has expired, so c no longer counts
+	// and beta, now published by a alone, is dropped.
+	cFile := pingerFile(cfg.Files.Pubring, c.name)
+	expired := c.key.Sign([]byte(c.ring), minisigntest.Comment("pubring.mix", now.Add(-49*time.Hour), 48*time.Hour))
+	if err := os.WriteFile(cFile+signatureSuffix, expired, 0644); err != nil {
+		t.Fatal(err)
+	}
+	refreshKeyring(true)
+	if strings.Contains(merged(), "beta@example.org") {
+		t.Error("beta still merged with the vote of c, whose signature has expired")
+	}
+	if !strings.Contains(merged(), "alpha@example.org") {
+		t.Error("alpha, published by a and b, dropped")
 	}
 }
