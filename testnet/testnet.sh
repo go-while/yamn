@@ -15,7 +15,9 @@
 #
 # Setting up from scratch: build, deploy, init, keyring, start, then send.
 set -eu
-cd "$(dirname "$0")"
+# The script calls itself for each node, after the cd below.
+SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+cd "$(dirname "$SELF")"
 TUSER=${TUSER:-yamn-test}
 PAR=${PAR:-6}
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=10"
@@ -32,7 +34,7 @@ each() {
 	cmd=$1
 	shift
 	[ $# -gt 0 ] || set -- $(nodes)
-	printf '%s\n' "$@" | xargs -P "$PAR" -I{} sh "$0" "_$cmd" {}
+	printf '%s\n' "$@" | xargs -P "$PAR" -I{} sh "$SELF" "_$cmd" {}
 }
 
 case ${1:-} in
@@ -48,7 +50,7 @@ start | restart)
 	shift
 	if [ $# -eq 0 ]; then
 		h=$(hub)
-		sh "$0" "_$c" "$h"
+		sh "$SELF" "_$c" "$h"
 		set -- $(nodes | grep -vx "$h")
 	fi
 	each "$c" "$@"
@@ -98,5 +100,5 @@ log)
 	*) on "$n" "tail -50 log/${3:-yamn}.log" ;;
 	esac
 	;;
-*) sed -n '2,18s/^# \{0,1\}//p' "$0"; exit 2 ;;
+*) sed -n '2,18s/^# \{0,1\}//p' "$SELF"; exit 2 ;;
 esac
