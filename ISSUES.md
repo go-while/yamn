@@ -13,7 +13,7 @@ were found later. Each status line names the tests that came with the fix.
 |---|---|---|---|
 | [Y-01](#y-01-any-sender-can-crash-a-remailer-with-one-packet) | High | Any sender can crash a remailer with one packet | fixed (4f370cc) |
 | [Y-02](#y-02-smtp-tls-without-certificate-verification) | High | SMTP TLS without certificate verification | fixed (6c0fb7e, f894bf0) |
-| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c; pinger quorum: de59490; remailer self-check: 5020c1b; key pinning: dca25ce; pinger signatures: 481b89e) |
+| [Y-03](#y-03-public-keyring-is-trusted-without-verification) | High | Public keyring is trusted without verification | in progress (keyid check: fa8b18c; pinger quorum: de59490; remailer self-check: 5020c1b; key pinning: dca25ce; pinger signatures: 481b89e; stale signed pingers: f8a0272) |
 | [Y-04](#y-04-next-hop-not-validated-header-injection-at-middle-remailers) | High | Next hop not validated; header injection at middle remailers | fixed (a4ad3ce) |
 | [Y-05](#y-05-multi-chunk-messages-are-never-delivered) | Medium | Multi-chunk messages are never delivered | fixed (486f1e6) |
 | [Y-06](#y-06-smtp-has-no-timeouts) | Medium | SMTP has no timeouts | fixed (f894bf0) |
@@ -178,6 +178,16 @@ were found later. Each status line names the tests that came with the fix.
     `TestVerify`, `TestParseSignatureErrors`, `TestParseTrusted`,
     `TestParsePublicKeyErrors`, `TestPingerKeys`, `TestFetchSigned`,
     `TestFetchSignedVectors`, `TestSignatureURL`, `TestRefreshKeyringSigned`.
+  - Done in `f8a0272` (branch `feat/03-stale-signed-pingers`): stale signed
+    pingers. Signatures were only checked at download, and a refused
+    download keeps the previous copy, so a signing pinger that stopped
+    signing (or whose files were held back) kept voting with its last
+    accepted keyring until those keys expired. yamn now stores each
+    accepted signature next to the file, and with `urls.pingers` a signing
+    pinger's copy only counts while that signature verifies and is neither
+    expired nor older than `urls.max_signature_age_hours`. Found reviewing
+    go-echolot PR #18. Tests: `TestSignedOnly`,
+    `TestRefreshKeyringStaleSigned`.
   - Open: the public pingers (Perl Echolot) don't sign, so signatures only
     help once a go-echolot pinger runs and its key is in `doc/pingers.md`.
     go-echolot also requires proof of possession (a returned ping) before
