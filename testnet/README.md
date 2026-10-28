@@ -52,8 +52,17 @@ It builds static binaries locally, so nothing is compiled on the nodes.
 ./testnet.sh status    # daemons, pool, Maildir and spool per node
 ./testnet.sh log 11103 mx       # also www, yamn (daemon output) or remailer (yamn.log)
 ./testnet.sh stop
-./testnet.sh clean     # stop and remove ~yamn-test/testnet
+./testnet.sh boot      # start at boot (deploy does this; noboot undoes it)
+./testnet.sh clean     # stop, noboot and remove ~yamn-test/testnet
 ```
+
+After a reboot the nodes start by themselves: `boot` installs a systemd
+unit, `yamn-testnet.service` (`User=yamn-test`, runs `node.sh start` and,
+at shutdown, `node.sh stop`), or on OpenRC (Alpine, Gentoo) the scripts
+`/etc/local.d/yamn-testnet.start` and `.stop`, with the `local` service
+added to the default runlevel. The order doesn't matter: a remailer that
+can't reach the hub yet keeps its keyring and tries again on its next
+loop, and the relays retry their mail.
 
 Commands that take nodes run on all of them without arguments, six at a
 time (`PAR=`). On a node, everything is in `~yamn-test/testnet`: `bin/`,
