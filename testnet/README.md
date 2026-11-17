@@ -9,8 +9,8 @@ isn't announced to the public pingers, and no mail can leave it.
 - **Names and addresses.** A node is named after the last two octets of
   its IP (10.10.11.101 is `11101`). Its domain is `<name>.yamn.test`, and
   its remailer is `mix@<name>.yamn.test`. `.test` is reserved and never
-  resolves on the internet; `nodes.txt` maps names to IPs, so there is no
-  DNS.
+  resolves on the internet; `nodes.txt` maps node names to IPs, so the
+  test domains need no DNS.
 - **Mail.** [`tnode mx`](tnode) is a small SMTP relay (Go standard library
   only) on port 2525 of every node:
   - mail for its own domain goes into the Maildir of the local part, with
@@ -33,6 +33,21 @@ isn't announced to the public pingers, and no mail can leave it.
   nodes with the `pinger` role measure the network and publish signed
   files; tnode delivers `pinger@` to `/var/lib/go-echolot/Maildir` and
   serves `/var/lib/go-echolot/results` at `/pinger/`.
+- **Who may connect.** Both `tnode mx` and `tnode www` accept connections
+  only from the nodes `nodes.txt` lists by IP address, from loopback, and
+  from what `-allow` adds, so a node on a public address serves only the
+  other nodes. No DNS is involved: a node listed by host name is not
+  allowed by its name (tnode logs which ones at start); put its addresses
+  in `~yamn-test/testnet/allow.txt` on every node (addresses or prefixes,
+  separated by blanks or lines, `#` comments), which `node.sh` passes as
+  `-allow`. The same goes for a node that connects from an address
+  `nodes.txt` doesn't list (a second address, IPv6). `testnet.sh deploy`
+  doesn't copy allow.txt and `clean` removes it. An IPv6 prefix doesn't
+  cover IPv4 clients (`::/0` isn't everyone). Link-local addresses and
+  prefixes (`fe80::/10`, `169.254.0.0/16`) and zoned addresses
+  (`fe80::1%eth0`) aren't supported: tnode refuses them at start. Others get `554` from mx and
+  a closed connection from www, logged at most once per 10 minutes per
+  address.
 - **The hub** also has the inbox (`inbox@<hub>.yamn.test`) and a yamn
   client that sends test messages through random chains.
 

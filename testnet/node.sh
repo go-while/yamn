@@ -155,6 +155,15 @@ strays() {
 	pgrep -u "$(id -u)" -f "^$B/(yamn|tnode) " 2>/dev/null
 }
 
+# allow_args: -allow flags for tnode from ~/testnet/allow.txt, if there is
+# one: addresses or prefixes, separated by blanks or lines, # comments. For
+# nodes that connect
+# from an address nodes.txt doesn't list (a second address, IPv6).
+allow_args() {
+	[ -f "$T/allow.txt" ] || return 0
+	awk '{ sub(/\r$/, ""); sub(/#.*/, ""); for (i = 1; i <= NF; i++) printf "-allow %s ", $i }' "$T/allow.txt"
+}
+
 start() {
 	load
 	set -- -nodes "$T/nodes.txt" -self "$NAME" -spool "$T/mx/spool" -deliver "mix=$T/remailer/Maildir"
@@ -162,11 +171,14 @@ start() {
 	if has_role pinger && [ -d "$PINGER_HOME/Maildir" ]; then
 		set -- "$@" -deliver "pinger=$PINGER_HOME/Maildir"
 	fi
-	supervise mx "$B/tnode" mx "$@"
+	# No file name expansion for the allow.txt entries (a "*" there).
+	set -f
+	supervise mx "$B/tnode" mx "$@" $(allow_args)
 	set --
 	has_role hub && set -- -serve "/=$T/www" -mlist2 "$T/www"
 	has_role pinger && [ -d "$PINGER_HOME/results" ] && set -- "$@" -serve "/pinger/=$PINGER_HOME/results"
-	[ $# -gt 0 ] && supervise www "$B/tnode" www "$@"
+	[ $# -gt 0 ] && supervise www "$B/tnode" www -nodes "$T/nodes.txt" $(allow_args) "$@"
+	set +f
 	supervise yamn "$B/yamn" --config "$T/remailer/yamn.yml" --dir "$T/remailer" -M -D
 }
 

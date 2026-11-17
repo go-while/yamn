@@ -30,6 +30,7 @@ type MX struct {
 	Nodes   map[string]Node
 	Deliver map[string]string // local part -> Maildir
 	Spool   string
+	Allow   *allowList // who may connect; nil: loopback only
 
 	kick     chan struct{}
 	hostname string
@@ -118,6 +119,11 @@ func (m *MX) session(c net.Conn) {
 	reply := func(format string, a ...any) error {
 		c.SetDeadline(time.Now().Add(cmdTimeout))
 		return tc.PrintfLine(format, a...)
+	}
+	if !m.Allow.Allows(c.RemoteAddr().String()) {
+		m.Allow.Refused(c.RemoteAddr().String(), "smtp")
+		reply("554 5.7.1 %s: only test network nodes may connect", m.Self.Domain())
+		return
 	}
 	if reply("220 %s tnode ESMTP (yamn test network)", m.Self.Domain()) != nil {
 		return
