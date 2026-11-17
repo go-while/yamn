@@ -55,6 +55,9 @@ func newAllowList(nodes map[string]Node, extra []string) (*allowList, error) {
 			return nil, fmt.Errorf("node %s: %w", n.Name, err)
 		}
 		ip, err := netip.ParseAddr(host)
+		if err != nil && looksNumeric(host) {
+			return nil, fmt.Errorf("node %s: %q is not a valid IP address", n.Name, host)
+		}
 		if err != nil {
 			a.byName = append(a.byName, n.Name+" ("+host+")")
 			continue
@@ -85,6 +88,16 @@ func newAllowList(nodes map[string]Node, extra []string) (*allowList, error) {
 	return a, nil
 }
 
+// looksNumeric reports whether a nodes.txt host is meant as an IP address
+// (digits and dots, or anything with a colon), so a malformed one such as
+// 010.0.0.1 is an error, not taken for a host name.
+func looksNumeric(host string) bool {
+	if strings.Contains(host, ":") {
+		return true
+	}
+	return strings.Trim(host, "0123456789.") == ""
+}
+
 // usable checks a configured address and returns it unmapped
 // (::ffff:10.0.0.1 is 10.0.0.1), the form addresses are compared in.
 func usable(ip netip.Addr) (netip.Addr, error) {
@@ -100,13 +113,17 @@ func usable(ip netip.Addr) (netip.Addr, error) {
 func normPrefix(p netip.Prefix) (netip.Prefix, error) {
 	// Check the address as written: masking a mapped prefix shorter than
 	// /96 would turn it into an unrelated IPv6 prefix.
-	if !p.Addr().Is4In6() {
-		return p.Masked(), nil
+	if p.Addr().Is4In6() {
+		if p.Bits() < 96 {
+			return netip.Prefix{}, fmt.Errorf("IPv4-mapped prefix shorter than /96")
+		}
+		p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
 	}
-	if p.Bits() < 96 {
-		return netip.Prefix{}, fmt.Errorf("IPv4-mapped prefix shorter than /96")
+	p = p.Masked()
+	if p.Addr().IsLinkLocalUnicast() {
+		return netip.Prefix{}, fmt.Errorf("%s: link-local addresses aren't supported", p)
 	}
-	return netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96).Masked(), nil
+	return p, nil
 }
 
 // Allows reports whether a connection from remote ("host:port", as

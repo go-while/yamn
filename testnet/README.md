@@ -43,8 +43,9 @@ isn't announced to the public pingers, and no mail can leave it.
   `-allow`. The same goes for a node that connects from an address
   `nodes.txt` doesn't list (a second address, IPv6). `testnet.sh deploy`
   doesn't copy allow.txt and `clean` removes it. An IPv6 prefix doesn't
-  cover IPv4 clients (`::/0` isn't everyone). Link-local and zoned
-  addresses (`fe80::1%eth0`) aren't supported. Others get `554` from mx and
+  cover IPv4 clients (`::/0` isn't everyone). Link-local addresses and
+  prefixes (`fe80::/10`, `169.254.0.0/16`) and zoned addresses
+  (`fe80::1%eth0`) aren't supported: tnode refuses them at start. Others get `554` from mx and
   a closed connection from www, logged at most once per 10 minutes per
   address.
 - **The hub** also has the inbox (`inbox@<hub>.yamn.test`) and a yamn

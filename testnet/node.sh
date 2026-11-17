@@ -171,11 +171,14 @@ start() {
 	if has_role pinger && [ -d "$PINGER_HOME/Maildir" ]; then
 		set -- "$@" -deliver "pinger=$PINGER_HOME/Maildir"
 	fi
+	# No file name expansion for the allow.txt entries (a "*" there).
+	set -f
 	supervise mx "$B/tnode" mx "$@" $(allow_args)
 	set --
 	has_role hub && set -- -serve "/=$T/www" -mlist2 "$T/www"
 	has_role pinger && [ -d "$PINGER_HOME/results" ] && set -- "$@" -serve "/pinger/=$PINGER_HOME/results"
 	[ $# -gt 0 ] && supervise www "$B/tnode" www -nodes "$T/nodes.txt" $(allow_args) "$@"
+	set +f
 	supervise yamn "$B/yamn" --config "$T/remailer/yamn.yml" --dir "$T/remailer" -M -D
 }
 

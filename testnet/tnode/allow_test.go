@@ -85,15 +85,20 @@ func TestAllowListErrors(t *testing.T) {
 		addr  string
 		extra []string
 	}{
-		"node without port":    {"10.0.0.1", nil},
-		"bad -allow":           {"10.0.0.1:2525", []string{"10.0.0.0/33"}},
-		"name in -allow":       {"10.0.0.1:2525", []string{"web-c.example"}},
-		"short mapped prefix":  {"10.0.0.1:2525", []string{"::ffff:0:0/95"}},
-		"link-local node":      {"[fe80::1]:2525", nil},
-		"zoned node":           {"[fe80::1%eth0]:2525", nil},
-		"zoned global node":    {"[2001:db8::1%eth0]:2525", nil},
-		"link-local -allow":    {"10.0.0.1:2525", []string{"fe80::1"}},
-		"zoned -allow address": {"10.0.0.1:2525", []string{"fe80::1%eth0"}},
+		"node without port":        {"10.0.0.1", nil},
+		"bad -allow":               {"10.0.0.1:2525", []string{"10.0.0.0/33"}},
+		"name in -allow":           {"10.0.0.1:2525", []string{"web-c.example"}},
+		"short mapped prefix":      {"10.0.0.1:2525", []string{"::ffff:0:0/95"}},
+		"link-local node":          {"[fe80::1]:2525", nil},
+		"zoned node":               {"[fe80::1%eth0]:2525", nil},
+		"zoned global node":        {"[2001:db8::1%eth0]:2525", nil},
+		"link-local -allow":        {"10.0.0.1:2525", []string{"fe80::1"}},
+		"zoned -allow address":     {"10.0.0.1:2525", []string{"fe80::1%eth0"}},
+		"link-local -allow prefix": {"10.0.0.1:2525", []string{"fe80::/64"}},
+		"IPv4 link-local prefix":   {"10.0.0.1:2525", []string{"169.254.0.0/16"}},
+		"IPv4 link-local node":     {"169.254.1.1:2525", nil},
+		"malformed IPv4 node":      {"010.0.0.1:2525", nil},
+		"short IPv4 node":          {"10.0.1:2525", nil},
 	} {
 		if _, err := newAllowList(map[string]Node{"a": {Name: "a", Addr: tc.addr}}, tc.extra); err == nil {
 			t.Errorf("%s: no error", name)
