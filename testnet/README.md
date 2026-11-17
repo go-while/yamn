@@ -39,10 +39,13 @@ isn't announced to the public pingers, and no mail can leave it.
 ## Use
 
 `testnet.sh` runs on a workstation that reaches the nodes as root over ssh.
-It builds static binaries locally, so nothing is compiled on the nodes.
+`build` compiles nothing on the workstation or the nodes: it takes a free
+test container from the job queue (`jobq.sh`, override the agent name with
+`JOBQ_AGENT=`), builds the committed HEAD there with that host's Go and
+copies the two static binaries back to `build/`.
 
 ```sh
-./testnet.sh build     # static yamn (from this checkout) and tnode
+./testnet.sh build     # static yamn (committed HEAD) and tnode
 ./testnet.sh deploy    # copy them, write each node's configs
 ./testnet.sh init      # each remailer creates its keys
 ./testnet.sh keyring   # publish the keys on the hub
