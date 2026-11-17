@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,9 +23,16 @@ func wwwMain(args []string) {
 	serve := mapFlag{}
 	fs.Var(serve, "serve", "url path=directory, repeatable (e.g. /=www, /pinger/=results)")
 	mlist2 := fs.String("mlist2", "", "directory whose pubring.mix gets a perfect mlist2.txt next to it, every 30 minutes")
+	nodesFile := fs.String("nodes", "nodes.txt", "nodes table: only these nodes may connect")
+	var allow listFlag
+	fs.Var(&allow, "allow", "also accept connections from this address or prefix, repeatable (the nodes and loopback always may)")
 	fs.Parse(args)
 	if len(serve) == 0 {
 		log.Fatal("nothing to serve: give -serve path=directory")
+	}
+	_, al, err := loadAllow(*nodesFile, "2525", allow)
+	if err != nil {
+		log.Fatal(err)
 	}
 	mux := http.NewServeMux()
 	for path, dir := range serve {
@@ -44,14 +52,28 @@ func wwwMain(args []string) {
 			}
 		}()
 	}
-	srv := &http.Server{Addr: *listen, Handler: logRequests(mux), ReadHeaderTimeout: 30 * time.Second}
-	log.Printf("www listening on %s", *listen)
-	log.Fatal(srv.ListenAndServe())
+	ln, err := net.Listen("tcp", *listen)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("www listening on %s", ln.Addr())
+	log.Fatal(serveWWW(ln, al, mux))
+}
+
+// serveWWW serves h on ln to the clients al allows; others are
+// disconnected as soon as they connect.
+func serveWWW(ln net.Listener, al *allowList, h http.Handler) error {
+	srv := &http.Server{
+		Handler:           logRequests(h),
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	return srv.Serve(allowListener{Listener: ln, allow: al, what: "www"})
 }
 
 func logRequests(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("GET %s from %s", r.URL.Path, r.RemoteAddr)
+		log.Printf("%s %q from %s", r.Method, r.URL.Path, r.RemoteAddr)
 		h.ServeHTTP(w, r)
 	})
 }
