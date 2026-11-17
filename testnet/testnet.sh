@@ -39,10 +39,28 @@ each() {
 
 case ${1:-} in
 build)
+	# Build on a free test container from the job queue (jobq.sh), never
+	# here: ship the committed HEAD there, build both static binaries, copy
+	# them back. Uncommitted changes are not included.
 	mkdir -p build
-	(cd .. && CGO_ENABLED=0 go build -trimpath -o testnet/build/yamn .)
-	CGO_ENABLED=0 go build -trimpath -o build/tnode ./tnode
-	./build/yamn --version
+	command -v jobq.sh >/dev/null || { echo "build: jobq.sh not found" >&2; exit 1; }
+	rev=$(git rev-parse --short HEAD)
+	git diff --quiet HEAD -- .. || echo "build: uncommitted changes are not built (HEAD $rev)" >&2
+	set -- $(jobq.sh lock yamn "${JOBQ_AGENT:-yamn-1}" any)
+	[ $# -eq 2 ] || { echo "build: no host from jobq.sh" >&2; exit 1; }
+	bh=$1
+	bid=$2
+	d=/root/yamn-build
+	trap '$SSH "root@$bh" "rm -rf $d"; jobq.sh unlock "$bh" "$bid"' EXIT
+	echo "build: $rev on $bh"
+	git -C .. archive --format=tar HEAD | $SSH "root@$bh" "rm -rf $d && mkdir -p $d && tar -x -C $d"
+	$SSH "root@$bh" "cd $d && PATH=\$PATH:/usr/local/go/bin:/root/yamn-test/go/bin &&
+		command -v go >/dev/null || { echo 'build: no Go on $bh' >&2; exit 1; }
+		export CGO_ENABLED=0 &&
+		timeout 30m go build -trimpath -o out/yamn . &&
+		timeout 30m go build -trimpath -o out/tnode ./testnet/tnode &&
+		out/yamn --version --i-am-root"
+	scp -q -o BatchMode=yes "root@$bh:$d/out/yamn" "root@$bh:$d/out/tnode" build/
 	;;
 start | restart)
 	# The hub first: the others download the keyring from it as they start.
