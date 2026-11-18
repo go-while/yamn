@@ -310,6 +310,9 @@ func TestMergeStats(t *testing.T) {
 	os.WriteFile(pubFile, res.Pubring, 0644)
 	os.WriteFile(statsFile, res.Stats, 0644)
 	p := NewPubring(pubFile, statsFile)
+	// ImportPubring checks keys against the real clock, and testPubring's
+	// keys expired on 2026-10-29; this test is about the merged stats.
+	p.UseExpired()
 	if err := p.ImportPubring(); err != nil {
 		t.Fatal(err)
 	}
