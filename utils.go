@@ -345,6 +345,11 @@ func stripArmor(reader io.Reader) (payload []byte, err error) {
 	4 In payload and checking for End cutmark
 	5 Got End cutmark
 	*/
+	// A yamn packet is always messageBytes long: stop collecting base64
+	// once there is more than that, rather than holding a message of any
+	// size in memory (twice, with the decoded copy).
+	maxB64 := base64.StdEncoding.EncodedLen(messageBytes)
+scan:
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch scanPhase {
@@ -381,17 +386,32 @@ func stripArmor(reader io.Reader) (payload []byte, err error) {
 		case 4:
 			if line == "-----END REMAILER MESSAGE-----" {
 				scanPhase = 5
-				break
+				// Nothing after the End cutmark is needed.
+				break scan
+			}
+			if b64.Len()+len(line) > maxB64 {
+				err = fmt.Errorf("payload longer than a yamn packet (over %d base64 bytes)", maxB64)
+				return
 			}
 			b64.WriteString(line)
 		} // End of switch
 	} // End of file scan
+	if serr := scanner.Err(); serr != nil {
+		err = fmt.Errorf("reading message: %w", serr)
+		return
+	}
 	switch scanPhase {
 	case 0:
 		err = errors.New("no :: found on message")
 		return
 	case 1:
 		err = errors.New("no Begin cutmarks found on message")
+		return
+	case 2:
+		err = errors.New("no payload size after the Begin cutmarks")
+		return
+	case 3:
+		err = errors.New("no payload hash after the Begin cutmarks")
 		return
 	case 4:
 		err = errors.New("no End cutmarks found on message")
