@@ -375,6 +375,35 @@ func TestOnionViaRelayWithoutTor(t *testing.T) {
 	}
 }
 
+// TestOnionViaRelayWithoutTorRetry checks that when the relay defers, a
+// refused .onion recipient (here in upper case) is noted as done and only
+// the relay's recipient waits for the retry, without the relay ever being
+// given the .onion recipient.
+func TestOnionViaRelayWithoutTorRetry(t *testing.T) {
+	server := setupDeliveryTest(t)
+	cfg.Mail.TorSocks = ""
+	server.rcptReply = map[string]string{"a@one.invalid": "450 4.2.0 try again later"}
+	onion := strings.ToUpper(testOnion(9))
+	file := writePoolMessage(t, "To: a@one.invalid, o@"+onion+"\n")
+	if del, err := mailPoolFile(file); del || err == nil || errors.Is(err, errPermanent) {
+		t.Errorf("delete %v, error %v; want a temporary error", del, err)
+	}
+	content, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("pool file not kept: %v", err)
+	}
+	if _, done, _ := parseInternalHeader(content); len(done) != 1 || !strings.EqualFold(done[0], "o@"+onion) {
+		t.Errorf("done %q, want the .onion recipient", done)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	for _, r := range server.rcpts {
+		if strings.EqualFold(r, "o@"+onion) {
+			t.Errorf("the relay was given %s", r)
+		}
+	}
+}
+
 // TestOnionMX checks that a .onion MX is used through tor_socks, and
 // skipped without it.
 func TestOnionMX(t *testing.T) {
