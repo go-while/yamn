@@ -207,4 +207,19 @@ func TestPoolFileReasonLogged(t *testing.T) {
 	if found := noneIn(info, "one.invalid", "two.invalid", "temporary"); len(found) > 0 {
 		t.Errorf("info log has %q:\n%s", found, info)
 	}
+
+	// A 550 to RCPT from a recipient's MX: "Recipient rejected", with the
+	// code, and not called temporary.
+	server := setupMXDelivery(t, nil)
+	server.rcptReply = map[string]string{"bob@three.invalid": "550 5.1.1 <bob@three.invalid>: no such user"}
+	buf = logAt(t, log.InfoLevel)
+	file = writePoolMessage(t, "To: bob@three.invalid\n")
+	emailPoolFile(filepath.Base(file))
+	info = buf.String()
+	if !strings.Contains(info, "Recipient rejected: a recipient's MX, SMTP 550") {
+		t.Errorf("info log lacks the rejection:\n%s", info)
+	}
+	if found := noneIn(info, "three.invalid", "temporary"); len(found) > 0 {
+		t.Errorf("info log has %q:\n%s", found, info)
+	}
 }
