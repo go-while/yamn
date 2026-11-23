@@ -395,10 +395,46 @@ func TestOnionViaRelayWithoutTorRetry(t *testing.T) {
 	if _, done, _ := parseInternalHeader(content); len(done) != 1 || !strings.EqualFold(done[0], "o@"+onion) {
 		t.Errorf("done %q, want the .onion recipient", done)
 	}
+	// The retry, now that the relay accepts, goes to the relay's
+	// recipient only and finishes the pool file.
+	server.mu.Lock()
+	server.rcptReply = nil
+	server.mu.Unlock()
+	if _, err := mailPoolFile(file); err != nil {
+		t.Errorf("retry: error %v, want delivered", err)
+	}
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	for _, r := range server.rcpts {
 		if strings.EqualFold(r, "o@"+onion) {
+			t.Errorf("the relay was given %s", r)
+		}
+	}
+	if want := [][]string{{"a@one.invalid"}}; !slices.EqualFunc(server.sessions, want, slices.Equal) {
+		t.Errorf("relay sessions %q, want %q", server.sessions, want)
+	}
+}
+
+// TestOnionViaRelayWithoutTorRefusals checks the permanent cases without
+// tor_socks: an invalid onion name is refused like a valid one, and when
+// the relay rejects its recipient for good too, the message fails for good.
+func TestOnionViaRelayWithoutTorRefusals(t *testing.T) {
+	server := setupDeliveryTest(t)
+	cfg.Mail.TorSocks = ""
+	file := writePoolMessage(t, "To: o@expyuzz4wqqyqhjn.onion\n")
+	if del, err := mailPoolFile(file); !del || !errors.Is(err, errPermanent) {
+		t.Errorf("invalid onion: delete %v, error %v; want a permanent error", del, err)
+	}
+
+	server.rcptReply = map[string]string{"a@one.invalid": "550 5.1.1 no such user"}
+	file = writePoolMessage(t, "To: a@one.invalid, o@"+testOnion(9)+"\n")
+	if del, err := mailPoolFile(file); !del || !errors.Is(err, errPermanent) {
+		t.Errorf("both refused: delete %v, error %v; want a permanent error", del, err)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	for _, r := range server.rcpts {
+		if strings.HasSuffix(strings.ToLower(r), ".onion") {
 			t.Errorf("the relay was given %s", r)
 		}
 	}
