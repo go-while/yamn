@@ -42,6 +42,9 @@ each() {
 JUMP=${JUMP:-root@mbox-mo1.pugleaf.net}
 BUILD_HOSTS=${BUILD_HOSTS:-10.10.30.109,10.10.30.119,10.10.30.102,10.10.30.121}
 GOBIN_PATH='PATH=$PATH:/usr/local/go/bin:/root/yamn-test/go/bin'
+# The Go that a host without one gets in /usr/local/go (the test pools
+# share it). A newer go line in go.mod makes it fetch that toolchain itself.
+GO_VERSION=${GO_VERSION:-1.27.4}
 
 # take HOSTS [JUMPHOST]: lock one of HOSTS through jobq.sh and check that
 # it answers. Sets bh, bid and BJ (ssh/scp jump option); on failure
@@ -84,11 +87,10 @@ build)
 	# Build on a test host from the job queue (jobq.sh), never here: ship
 	# the committed HEAD there, build both static binaries, copy them back.
 	# Uncommitted changes are not included. A host without Go gets the
-	# official tarball of go.mod's version.
+	# official tarball of $GO_VERSION.
 	mkdir -p build
 	command -v jobq.sh >/dev/null || { echo "build: jobq.sh not found" >&2; exit 1; }
 	rev=$(git rev-parse --short HEAD)
-	gov=$(git show HEAD:go.mod | awk '$1 == "go" { print $2; exit }')
 	git diff --quiet HEAD -- .. || echo "build: uncommitted changes are not built (HEAD $rev)" >&2
 	take "$BUILD_HOSTS" "$JUMP" || take any || { echo "build: no host from jobq.sh" >&2; exit 1; }
 	d=/root/yamn-build
@@ -97,7 +99,7 @@ build)
 	trap '$SSH $BJ "root@$bh" "rm -rf $d" || :; jobq.sh unlock "$bh" "$bid"' EXIT
 	trap 'exit 130' INT TERM HUP
 	echo "build: $rev on $bh"
-	$SSH $BJ "root@$bh" "$GOBIN_PATH; command -v go >/dev/null" || goinstall "$gov"
+	$SSH $BJ "root@$bh" "$GOBIN_PATH; command -v go >/dev/null" || goinstall "$GO_VERSION"
 	git -C .. archive --format=tar HEAD | $SSH $BJ "root@$bh" "rm -rf $d && mkdir -p $d && tar -x -C $d"
 	$SSH $BJ "root@$bh" "cd $d && $GOBIN_PATH &&
 		export CGO_ENABLED=0 &&

@@ -45,8 +45,9 @@ host from the job queue (`jobq.sh`, override the agent name with
 binaries back to `build/`. It asks for one of the KVM VMs in `BUILD_HOSTS`
 first (reached through the jump host `JUMP`, default mbox-mo1) and falls
 back to any free nuc container when the VM it got does not answer. A host
-without Go gets the official go.dev tarball of the version in `go.mod`
-(checked against go.dev's sha256) in `/usr/local/go`.
+without Go gets the official go.dev tarball of `GO_VERSION` (default
+1.27.4; checked against go.dev's sha256) in `/usr/local/go`; a newer `go`
+line in `go.mod` makes that Go fetch the newer toolchain itself.
 
 ```sh
 ./testnet.sh build     # static yamn (committed HEAD) and tnode
