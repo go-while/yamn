@@ -396,7 +396,9 @@ scan:
 			b64.WriteString(line)
 		} // End of switch
 	} // End of file scan
-	if serr := scanner.Err(); serr != nil {
+	// A read error after the End cutmark doesn't matter: the packet is
+	// complete.
+	if serr := scanner.Err(); serr != nil && scanPhase != 5 {
 		err = fmt.Errorf("reading message: %w", serr)
 		return
 	}

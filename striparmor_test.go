@@ -165,3 +165,19 @@ func TestStripArmorLineEnds(t *testing.T) {
 		t.Errorf("err = %v, want the read error", err)
 	}
 }
+
+// A read error after the End cutmark (read ahead by the scanner) doesn't
+// cost a complete packet.
+func TestStripArmorErrorAfterEnd(t *testing.T) {
+	payload := make([]byte, messageBytes)
+	if _, err := rand.Read(payload); err != nil {
+		t.Fatal(err)
+	}
+	var b bytes.Buffer
+	armor(&b, payload)
+	r := io.MultiReader(&b, errReader{errors.New("disk on fire")})
+	got, err := stripArmor(r)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("err = %v, payload equal %v", err, bytes.Equal(got, payload))
+	}
+}
