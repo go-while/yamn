@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -75,13 +76,16 @@ func TestSMTPConnLog(t *testing.T) {
 		textproto.ProtocolError("short response: oops previous delivery to bob@secret.invalid"))
 	smtpConnLog(log.Warnf, "SMTP EHLO", "localhost:587", false,
 		errors.New("unexpected text from bob@secret.invalid"))
+	smtpConnLog(log.Warnf, "STARTTLS", "localhost:587", false,
+		&tls.CertificateVerificationError{Err: x509.HostnameError{Certificate: &x509.Certificate{DNSNames: []string{"bob.secret.invalid"}}, Host: "localhost"}})
 	smtpConnLog(log.Warnf, "Dial", "localhost:587", false,
 		&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
 	out := buf.String()
 	if strings.Contains(out, "secret") {
 		t.Errorf("the relay's reply text is logged:\n%s", out)
 	}
-	for _, want := range []string{"SMTP MAIL FROM failed: localhost:587, SMTP 421 4.4.2", "Dial failed: localhost:587, dial tcp: connection refused"} {
+	for _, want := range []string{"SMTP MAIL FROM failed: localhost:587, SMTP 421 4.4.2",
+		"STARTTLS failed: localhost:587, TLS certificate error", "Dial failed: localhost:587, dial tcp: connection refused"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log lacks %q:\n%s", want, out)
 		}

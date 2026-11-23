@@ -184,9 +184,10 @@ func smtpLog(logf func(string, ...interface{}), what, serverAddr string, directM
 }
 
 // smtpConnLog is smtpLog for the steps before the recipients (dial, EHLO,
-// STARTTLS, AUTH, MAIL FROM): with smtp_relay, a network, DNS or TLS error,
-// or one of yamn's TLS policy errors, holds only the operator's settings
-// and is logged in full.  Anything else, a reply from the relay above all
+// STARTTLS, AUTH, MAIL FROM): with smtp_relay, a network, DNS or TLS
+// protocol error, or one of yamn's TLS policy errors, holds only the
+// operator's settings and is logged in full.  A certificate error isn't:
+// it quotes the names on the certificate the peer presented.  Anything else, a reply from the relay above all
 // (well-formed or not), is summed up like the other SMTP lines: its text
 // is the relay's and may name earlier recipients.
 func smtpConnLog(logf func(string, ...interface{}), what, serverAddr string, directMX bool, err error) {
@@ -197,8 +198,8 @@ func smtpConnLog(logf func(string, ...interface{}), what, serverAddr string, dir
 	logf("%s failed: %s, %s", what, serverAddr, err)
 }
 
-// connErrorSafe reports whether err is one whose text holds no reply text
-// from the server: a network, DNS or TLS error, or errNoTLS or
+// connErrorSafe reports whether err is one whose text holds no text from
+// the server: a network, DNS or TLS protocol error, or errNoTLS or
 // errRelayNoTLS.
 func connErrorSafe(err error) bool {
 	var tp *textproto.Error
@@ -206,18 +207,25 @@ func connErrorSafe(err error) bool {
 	if errors.As(err, &tp) || errors.As(err, &pe) {
 		return false
 	}
+	if hasCertError(err) {
+		return false
+	}
 	var op *net.OpError
 	var dns *net.DNSError
+	var alert tls.AlertError
+	var record tls.RecordHeaderError
+	return errors.As(err, &op) || errors.As(err, &dns) ||
+		errors.As(err, &alert) || errors.As(err, &record) ||
+		errors.Is(err, errNoTLS) || errors.Is(err, errRelayNoTLS)
+}
+
+// hasCertError reports whether a certificate error is in err's chain.
+func hasCertError(err error) bool {
 	var cert *tls.CertificateVerificationError
 	var unknownCA x509.UnknownAuthorityError
 	var host x509.HostnameError
 	var invalid x509.CertificateInvalidError
-	var alert tls.AlertError
-	var record tls.RecordHeaderError
-	return errors.As(err, &op) || errors.As(err, &dns) || errors.As(err, &cert) ||
-		errors.As(err, &unknownCA) || errors.As(err, &host) || errors.As(err, &invalid) ||
-		errors.As(err, &alert) || errors.As(err, &record) ||
-		errors.Is(err, errNoTLS) || errors.Is(err, errRelayNoTLS)
+	return errors.As(err, &cert) || errors.As(err, &unknownCA) || errors.As(err, &host) || errors.As(err, &invalid)
 }
 
 // serverFor names a server in info and warn logs: smtp_relay by its
