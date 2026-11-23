@@ -7,9 +7,10 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 
 Y-23 to Y-52 come from a second review of `master` at `15acb78`
 (2026-10-21; crypto/packets, mail/network, client/config). Y-53 to Y-57
-were found later. Y-58 to Y-65 come from three outside reviews of `master`
-at `ea98ade` (2026-11-23), each checked in the code before it was listed;
-Y-48 was reopened by them. Each status line names the tests that came with the fix.
+were found later. Y-58 to Y-60 and Y-62 to Y-65 come from three outside
+reviews of `master` at `ea98ade` (2026-11-23), each checked in the code
+before it was listed; they also reopened Y-48. Y-61 comes from the review
+of the Y-59 fix. Each status line names the tests that came with the fix.
 
 | ID | Severity | Summary | Status |
 |---|---|---|---|
@@ -71,7 +72,7 @@ Y-48 was reopened by them. Each status line names the tests that came with the f
 | [Y-56](#y-56-yamn-runs-as-root-without-complaint) | Low | yamn runs as root without complaint | fixed (c8a0cd4, d30f12b) |
 | [Y-57](#y-57-a-second-remailer-on-the-same-files-panics) | Low | A second remailer on the same files panics | fixed (c27ca3b) |
 | [Y-58](#y-58-incoming-armor-is-collected-without-a-size-limit) | Low | Incoming armor is collected without a size limit | fixed (8d3229c, #84) |
-| [Y-59](#y-59-yamn--m-without--d-never-sends) | Medium | `yamn -M` without `-D` never sends | fixed (203c58e, #85) |
+| [Y-59](#y-59-a-single-remailer-run-doesnt-send) | Medium | A single remailer run doesn't send | fixed (203c58e, #85) |
 | [Y-60](#y-60-onion-recipients-go-to-smtp_relay-without-tor_socks) | Low | `.onion` recipients go to `smtp_relay` without `tor_socks` | fixed (778ea74, #86) |
 | [Y-61](#y-61-the-remailer--reply-limit-is-per-process) | Low | The `remailer-*` reply limit is per process | open |
 | [Y-62](#y-62-a-relays-5xx-to-one-recipient-holds-back-the-others) | Low | A relay's 5xx to one recipient holds back the others | open |
@@ -661,12 +662,14 @@ Y-48 was reopened by them. Each status line names the tests that came with the f
   other keys. Tests: `TestLineScanner`, `TestPubringLongLine`,
   `TestStatsLongLine`.
 
-### Y-59: `yamn -M` without `-D` never sends
+### Y-59: A single remailer run doesn't send
 
 - **Where:** `server.go` (`loopServer`).
 - **Impact:** yamn(1) says `-M` without `-D` performs "a single iteration
   of read, process, send", but only the daemon's pool goroutine called
-  `sendPoolBatch`. A remailer run from cron decoded its mail and left it
+  `sendPoolBatch`. With daemon mode off (neither `-D` nor
+  `remailer.daemon`) and without `-S` (which flushes the pool afterwards),
+  nothing was sent. A remailer run from cron decoded its mail and left it
   in the pool, `remailer-*` replies too (pooled since Y-28), until a
   daemon or `yamn -S` sent them.
 - **Fix:** end the single pass with one pool batch, except with `-S`.
@@ -1155,8 +1158,9 @@ Y-48 was reopened by them. Each status line names the tests that came with the f
 - **Impact:** the base64 of an incoming remailer message was collected
   without a limit and decoded before the size check, so anyone who mails
   a remailer could make it hold about twice a large mail's base64 in
-  memory (bounded only by the MTA's message size limit). It also read on
-  after the End cutmark and reported read errors as missing cutmarks.
+  memory (yamn set no total limit; only an MTA's message size limit
+  applies). It also read on after the End cutmark and could report a
+  read error before it as a missing cutmark.
 - **Fix:** refuse the message once the base64 passes a packet's size
   (27308 bytes); stop at the End cutmark; check `scanner.Err()`.
 - **Found:** outside review (2026-11-23), confirmed by reading and a test.
@@ -1187,7 +1191,7 @@ Y-48 was reopened by them. Each status line names the tests that came with the f
 - **Impact:** the once-a-day limit per address (Y-19) is kept in memory
   and starts empty in every process, so separate runs from cron (which
   send since Y-59) can reply again to the same address on the same day.
-  yamn(1) says so.
+  yamn(1) says so with the Y-59 fix (#85).
 - **Fix:** keep the limiter (day, address hashes) in a small file next to
   the pool.
 - **Found:** council review of the Y-59 fix (2026-11-23).
@@ -1199,7 +1203,8 @@ Y-48 was reopened by them. Each status line names the tests that came with the f
 - **Impact:** from `smtp_relay`, only a 5.1.x reply to RCPT counts as a
   refused recipient; any other 5xx ends the session before DATA (meant
   for "relaying denied" and similar misconfigurations), so the recipients
-  the relay already accepted wait too, until `pool.max_age`.
+  the relay already accepted wait too, until `pool.max_age` if the refusal
+  persists.
 - **Fix:** treat such a recipient as deferred and send to the accepted
   ones; keep the session-wide retry only when no recipient is accepted.
 - **Found:** outside review (2026-11-23), confirmed by reading.
@@ -1313,21 +1318,26 @@ Y-48 was reopened by them. Each status line names the tests that came with the f
 
 Checked in the code on 2026-11-23 and kept here instead of acting on them:
 
-- **Can be fixed:** a pubring with two keys for one remailer uses the last
-  one in file order (`ImportPubring`, `PinStore.check`), not the newest by
-  date; it needs a pinger that lists both. An invalid or unknown next hop
-  in a packet is logged with its value (`checkNextHop`; a forged value).
-  MX lookup failures at warn don't say which kind of permanent failure.
+- **Can be fixed:** a pubring with two keys for one remailer takes the
+  last one in file order as the candidate (`ImportPubring`,
+  `PinStore.check`; pinning may still keep the pinned key), not the newest
+  by date; it needs a pubring that lists both. An invalid or unknown next
+  hop in a packet is logged with its value (`checkNextHop`; a forged
+  value). With the Y-48 fix (#87), MX lookup failures at warn give only
+  the error kind, not which permanent failure it was.
   `checkPublishedKeys` runs before `startupKeys` purges old keys. A
   missing `.minisig` can delay a fetch by up to an hour after pinger keys
   are first configured. Expired pool files count as sent mail in the
   stats. The self-loop check compares addresses case-sensitively.
   `dummy()` logs "no known remailers" instead of `makeChain`'s error.
 - **By design:** a held key change whose old key was still listed when it
-  appeared, or came back later, stays held until `--pin-accept` (yamn(1),
-  key pinning); yamn(1) could say "or was still listed".
+  appeared, or came back later, isn't released after 24 hours (yamn(1),
+  key pinning); it is accepted with `--pin-accept`, or as a normal
+  rotation once the pinned key is close to expiring. yamn(1) could say "or
+  was still listed".
 - **Noise for this project:** no `fsync` before rename in
-  `writeFileAtomic`/`PinStore.Save` (old or new file on ZFS); config
+  `writeFileAtomic`/`PinStore.Save` (on some filesystems a crash can leave
+  an empty file; on ZFS the old or the new file stays); config
   values of 0 that panic later (invalid configurations); `io/ioutil`,
   `min`/`max` shadowing, `path` vs `filepath` (Windows only),
   `WriteConfig` mode 0644 (unused), local-time midnight, the `cfg.Pool.Loop`
