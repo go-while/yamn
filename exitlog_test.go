@@ -133,3 +133,53 @@ func TestFooRefusalNamesNoSender(t *testing.T) {
 		t.Errorf("second request: err = %v", err)
 	}
 }
+
+// TestReceivedMailErrorsNotLogged checks that what the parsers quote from
+// received mail stays out of the info log: a malformed From or an unknown
+// or address-carrying Subject of a remailer-* request, a malformed armor
+// line, and a malformed header line in a decrypted exit message.
+func TestReceivedMailErrorsNotLogged(t *testing.T) {
+	const secret = "secret-recipient.invalid"
+	_, exit := setupRoundTrip(t)
+	actAs(t, exit, true)
+	cfg.Files.Help = filepath.Join(t.TempDir(), "help.txt")
+	if err := os.WriteFile(cfg.Files.Help, []byte("Help\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Files.DestBlock = filepath.Join(t.TempDir(), "dest.blk")
+	oldLimiter := fooReplies
+	fooReplies = newReplyLimiter()
+	t.Cleanup(func() { fooReplies = oldLimiter })
+	cfg.Files.Maildir = filepath.Join(t.TempDir(), "Maildir")
+	dir := maildir.Dir(cfg.Files.Maildir)
+	if err := dir.Create(); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{
+		"From: Alice <bob@" + secret + "\nSubject: remailer-help\n\nx\n",
+		"From: alice@example.invalid\nSubject: remailer-xyz bob@" + secret + "\n\nx\n",
+		"From: carol@example.invalid\nSubject: remailer-help\n\nx\n",
+		"From: carol@example.invalid\nSubject: remailer-help bob@" + secret + "\n\nx\n",
+		"From: dave@example.invalid\nSubject: yamn\n\n::\n\n-----BEGIN REMAILER MESSAGE-----\nbob@" + secret + "\n",
+	} {
+		deliverMail(t, dir, []byte(m))
+	}
+	buf := logAt(t, log.InfoLevel)
+	if err := processMail(exit.secring); err != nil {
+		t.Fatalf("processMail: %s", err)
+	}
+
+	setupDeliveryTest(t)
+	file := writePoolMessage(t, "To bob@"+secret+"\n")
+	emailPoolFile(filepath.Base(file))
+
+	info := buf.String()
+	if found := noneIn(info, secret, "bob@", "remailer-xyz"); len(found) > 0 {
+		t.Errorf("info log names %q:\n%s", found, info)
+	}
+	for _, want := range []string{"invalid From", "unknown remailer-* request", "already replied", "not a yamn message", "can't be parsed"} {
+		if !strings.Contains(info, want) {
+			t.Errorf("info log lacks %q:\n%s", want, info)
+		}
+	}
+}

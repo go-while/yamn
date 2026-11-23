@@ -499,7 +499,9 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 	// The message follows the internal header line.
 	msg, err := mail.ReadMessage(bytes.NewReader(stripInternalHeader(content)))
 	if err != nil {
-		log.Errorf("Failed to process mail file: %s", err)
+		// The parser's error can quote a header line, a recipient's.
+		log.Errorf("%s: the message can't be parsed, dropping it", filename)
+		log.Tracef("%s: %s", filename, err)
 		// If we can't process it, it'll never get sent.  Mark for delete.
 		delFlag = true
 		return

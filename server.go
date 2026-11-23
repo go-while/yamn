@@ -787,7 +787,8 @@ func remailerFoo(subject, from string) (err error) {
 	// name ("Alice <alice@example.org>"), which isn't a valid SMTP recipient.
 	fromAddr, err := mail.ParseAddress(from)
 	if err != nil {
-		err = fmt.Errorf("ignoring remailer-* request with invalid From %q: %w", from, err)
+		log.Tracef("remailer-* request with invalid From %q: %s", from, err)
+		err = errors.New("ignoring a remailer-* request with an invalid From")
 		return
 	}
 	sender := fromAddr.Address
@@ -797,20 +798,20 @@ func remailerFoo(subject, from string) (err error) {
 	}
 	// The From header can be forged, so reply at most once a day per address.
 	if !fooReplies.allowed(sender) {
-		log.Tracef("already replied to %s today", sender)
-		err = fmt.Errorf("already replied to this sender today, ignoring %s", subject)
+		log.Tracef("already replied to %s today, ignoring %q", sender, subject)
+		err = errors.New("ignoring a remailer-* request: already replied to this sender today")
 		return
 	}
 	// Addresses on the destination block list get no replies either.  If
 	// the list can't be read, don't reply.
 	blockList, err := readDestBlock(cfg.Files.DestBlock)
 	if err != nil {
-		err = fmt.Errorf("unable to read destination block list, ignoring %s: %w", subject, err)
+		err = fmt.Errorf("ignoring a remailer-* request: unable to read destination block list: %w", err)
 		return
 	}
 	if destBlocked(blockList, sender) {
-		log.Tracef("%s is on the destination block list", sender)
-		err = fmt.Errorf("the sender is on the destination block list, ignoring %s", subject)
+		log.Tracef("%s is on the destination block list, ignoring %q", sender, subject)
+		err = errors.New("ignoring a remailer-* request: the sender is on the destination block list")
 		return
 	}
 	m := quickmail.NewMessage()
@@ -886,17 +887,14 @@ func remailerFoo(subject, from string) (err error) {
 				cfg.Remailer.Name))
 		m.Filename = cfg.Files.Help
 	} else {
-		if len(subject) > 20 {
-			// Truncate long subject headers before logging them
-			subject = subject[:20]
-		}
-		err = fmt.Errorf("ignoring request for %s", subject)
+		log.Tracef("unknown remailer-* request %q", subject)
+		err = errors.New("ignoring an unknown remailer-* request")
 		return
 	}
 	var msg []byte
 	msg, err = m.Compile()
 	if err != nil {
-		log.Infof("Unable to send %s", subject)
+		log.Infof("Unable to build the remailer-* reply: %s", err)
 		return
 	}
 	// Count the reply before it's sent.  Its address may belong to a mail
