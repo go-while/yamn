@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
@@ -161,13 +162,32 @@ func TestStripArmorLineEnds(t *testing.T) {
 	if err == nil {
 		t.Fatal("a 70000 byte line was accepted")
 	}
-	if strings.Contains(err.Error(), "End cutmark") {
-		t.Errorf("err = %v, want the read error", err)
+	if !errors.Is(err, bufio.ErrTooLong) {
+		t.Errorf("err = %v, want bufio.ErrTooLong", err)
 	}
 }
 
-// A read error after the End cutmark (read ahead by the scanner) doesn't
-// cost a complete packet.
+// lastReadErr returns its data, and with the last of it a read error, in
+// the same Read: the scanner then holds the error while it still returns
+// the lines it read, End cutmark included.
+type lastReadErr struct {
+	data    []byte
+	err     error
+	gaveErr bool
+}
+
+func (r *lastReadErr) Read(p []byte) (int, error) {
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	if len(r.data) == 0 {
+		r.gaveErr = true
+		return n, r.err
+	}
+	return n, nil
+}
+
+// A read error that comes with the End cutmark doesn't cost a complete
+// packet.
 func TestStripArmorErrorAfterEnd(t *testing.T) {
 	payload := make([]byte, messageBytes)
 	if _, err := rand.Read(payload); err != nil {
@@ -175,8 +195,11 @@ func TestStripArmorErrorAfterEnd(t *testing.T) {
 	}
 	var b bytes.Buffer
 	armor(&b, payload)
-	r := io.MultiReader(&b, errReader{errors.New("disk on fire")})
+	r := &lastReadErr{data: b.Bytes(), err: errors.New("disk on fire")}
 	got, err := stripArmor(r)
+	if !r.gaveErr {
+		t.Fatal("the read error was never returned")
+	}
 	if err != nil || !bytes.Equal(got, payload) {
 		t.Fatalf("err = %v, payload equal %v", err, bytes.Equal(got, payload))
 	}
