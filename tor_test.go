@@ -400,8 +400,9 @@ func TestOnionViaRelayWithoutTorRetry(t *testing.T) {
 	server.mu.Lock()
 	server.rcptReply = nil
 	server.mu.Unlock()
-	if _, err := mailPoolFile(file); err != nil {
-		t.Errorf("retry: error %v, want delivered", err)
+	emailPoolFile(filepath.Base(file))
+	if _, err := os.Stat(file); err == nil {
+		t.Error("retry: the pool file is still there")
 	}
 	server.mu.Lock()
 	defer server.mu.Unlock()
