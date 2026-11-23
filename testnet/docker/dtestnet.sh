@@ -85,7 +85,8 @@ _deploy)
 	tag=$(cat build/yamn-tn.tag)
 	$SSH "$h" "mkdir -p $D/$n && chown $CUID:$CUID $D/$n && chmod 700 $D/$n"
 	scp -q -o BatchMode=yes build/yamn-tn.tar "$h:$D/yamn-tn.tar"
-	$SSH "$h" "set -e
+	# Keep ssh's exit status (a pipe into sed would hide it): each reports failures.
+	out=$($SSH "$h" "set -e
 		podman import -q --change 'USER $CUID:$CUID' --change 'ENV HOME=/home/yamn-test' \
 			--change 'WORKDIR /home/yamn-test' --change 'ENTRYPOINT [\"/opt/yamn-tn/entrypoint.sh\"]' \
 			$D/yamn-tn.tar localhost/yamn-tn:$tag >/dev/null
@@ -99,7 +100,9 @@ _deploy)
 			podman rmi \$i >/dev/null 2>&1 || true
 		done
 		sleep 3
-		podman logs --tail 5 $c" | sed "s/^/$n: /"
+		podman logs --tail 5 $c" 2>&1) || rc=$?
+	printf '%s\n' "$out" | sed "s/^/$n: /"
+	exit "${rc:-0}"
 	;;
 keyring)
 	tmp=$(mktemp)
@@ -118,7 +121,14 @@ _start) $SSH "$(host "$2")" "podman start $(ctr "$2") >/dev/null" && echo "$2: s
 _stop) $SSH "$(host "$2")" "podman stop -t 20 $(ctr "$2") >/dev/null" && echo "$2: stopped" ;;
 _status)
 	s=$($SSH "$(host "$2")" "podman ps -a --filter name=^$(ctr "$2")\$ --format '{{.Status}}'")
-	case $s in Up*) on "$2" "sh node.sh status" | sed "s/\$/ [$s]/" ;; *) echo "$2: container ${s:-missing}" ;; esac
+	case $s in
+	Up*)
+		out=$(on "$2" "sh node.sh status") || rc=$?
+		printf '%s [%s]\n' "$out" "$s"
+		exit "${rc:-0}"
+		;;
+	*) echo "$2: container ${s:-missing}"; exit 1 ;;
+	esac
 	;;
 send) on "$(hub)" "sh node.sh send ${2:-1}" ;;
 inbox) on "$(hub)" "sh node.sh inbox" ;;

@@ -3,6 +3,8 @@
 # the node's data directory mounted on ~/testnet.
 set -u
 : "${NODE:?NODE is not set}"
+# As pid 1 the shell ignores TERM without a trap: stop also during init.
+trap 'exit 143' TERM INT
 T=$HOME/testnet
 O=/opt/yamn-tn
 cd "$T" || exit 1

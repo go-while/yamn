@@ -1,8 +1,9 @@
 # Test network in containers
 
 The same test network as in [`..`](..), one node per public server, each in
-a container: `yamn-tn-<name>` on `web-<name>` (podman, or docker with the
-same options). It uses `node.sh` and tnode unchanged; what differs:
+a container: `yamn-tn-<name>` on `web-<name>`, with podman (the image
+name `localhost/yamn-tn` and the `k8s-file` log driver are podman's).
+It uses `node.sh` and tnode unchanged; what differs:
 
 - **Ports:** `ports.env` sets mx 25250 and www 28080 for every node
   (`node.sh` reads it; without it, 2525 and 8080 as before). The
@@ -16,7 +17,9 @@ same options). It uses `node.sh` and tnode unchanged; what differs:
   system tar, which `dtestnet.sh deploy` copies to each server and
   imports as `localhost/yamn-tn:<time>`.
 - **Container:** runs as uid 10001 (`yamn-test`), with
-  `--memory 256m --cpus 0.5 --pids-limit 128`, log size capped, and
+  `--memory 256m --cpus 0.5 --pids-limit 128`, the container log capped
+  at 10 MB (the node's own logs in its data directory grow: about 15 MB
+  in four weeks on the busiest node of the LXC testnet), and
   `--restart unless-stopped`. Its data (keys, pool, Maildirs, logs) is in
   `/srv/yamn-testnet/<name>` on the server, mounted on `~/testnet`; the
   entrypoint runs `node.sh setup`, `init` (first start only) and `start`,
@@ -43,6 +46,7 @@ same options). It uses `node.sh` and tnode unchanged; what differs:
 `HOSTS` (default `web-%s`) maps a node name to its ssh host. A deploy
 with a new image keeps each node's data and keys.
 
-With podman, `podman-restart.service` restarts only containers with
-`--restart always` at boot: after a server reboot, `dtestnet.sh start`
-brings the node back.
+On the servers used here (podman 5.4.2, Debian 13), `podman-restart.service`
+starts only containers with `--restart always` at boot
+(`ExecStart=... start --all --filter restart-policy=always`): after a
+server reboot, `dtestnet.sh start` brings the node back.
