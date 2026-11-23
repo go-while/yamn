@@ -132,6 +132,11 @@ func TestFooRefusalNamesNoSender(t *testing.T) {
 	if err := remailerFoo("remailer-help", "alice@example.invalid"); err == nil || strings.Contains(err.Error(), "alice") {
 		t.Errorf("second request: err = %v", err)
 	}
+	// A reply that can't be pooled doesn't name the request's Subject.
+	cfg.Files.Pooldir = cfg.Files.Help // a file, not a directory
+	if err := remailerFoo("remailer-help bob@secret.invalid", "carol@example.invalid"); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Errorf("pool write failure: err = %v", err)
+	}
 }
 
 // TestReceivedMailErrorsNotLogged checks that what the parsers quote from

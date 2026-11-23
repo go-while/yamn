@@ -903,7 +903,8 @@ func remailerFoo(subject, from string) (err error) {
 	// The reply is sent from the pool, so a slow mail server can't hold up
 	// the processing of incoming mail.
 	if err = writeReplyToPool(msg); err != nil {
-		err = fmt.Errorf("unable to pool the %s reply: %w", subject, err)
+		log.Tracef("unable to pool the reply to %q", subject)
+		err = fmt.Errorf("unable to pool the remailer-* reply: %w", err)
 	}
 	return
 }

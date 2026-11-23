@@ -18,6 +18,15 @@ func (timeoutErr) Error() string   { return "i/o timeout on 192.0.2.1:25" }
 func (timeoutErr) Timeout() bool   { return true }
 func (timeoutErr) Temporary() bool { return true }
 
+// A pendingError never counts as permanent, even with a permanent cause:
+// the message still has recipients to do.
+func TestPendingNotPermanent(t *testing.T) {
+	err := &pendingError{1, 2, errors.Join(fmt.Errorf("%w: refused", errPermanent), errors.New("later"))}
+	if errors.Is(err, errPermanent) {
+		t.Error("a pendingError is errPermanent")
+	}
+}
+
 func TestLogBrief(t *testing.T) {
 	reject := &textproto.Error{Code: 550, Msg: "5.1.1 <bob@secret.invalid>: no such user"}
 	deferred := &textproto.Error{Code: 451, Msg: "4.3.0 <carol@secret.invalid>: later"}
