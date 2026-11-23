@@ -112,3 +112,27 @@ func TestStripArmorValidPacket(t *testing.T) {
 		t.Fatal("payload changed")
 	}
 }
+
+// The cap is exactly a packet's base64: one byte more is refused before
+// decoding, exactly that much gets as far as the digest check.
+func TestStripArmorCapBoundary(t *testing.T) {
+	head := "::\n\n-----BEGIN REMAILER MESSAGE-----\n20480\n" + strings.Repeat("0", 64) + "\n"
+	wrap := func(b64 string) string {
+		var b strings.Builder
+		for len(b64) > 64 {
+			b.WriteString(b64[:64] + "\n")
+			b64 = b64[64:]
+		}
+		b.WriteString(b64 + "\n")
+		return b.String()
+	}
+	packet := base64.StdEncoding.EncodeToString(make([]byte, messageBytes))
+	_, err := stripArmor(strings.NewReader(head + wrap(packet+"A") + "-----END REMAILER MESSAGE-----\n"))
+	if err == nil || !strings.Contains(err.Error(), "longer than a yamn packet") {
+		t.Errorf("%d base64 bytes: err = %v, want the size error", len(packet)+1, err)
+	}
+	_, err = stripArmor(strings.NewReader(head + wrap(packet) + "-----END REMAILER MESSAGE-----\n"))
+	if err == nil || !strings.Contains(err.Error(), "digest") {
+		t.Errorf("%d base64 bytes: err = %v, want a digest error", len(packet), err)
+	}
+}
