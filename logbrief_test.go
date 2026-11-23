@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/Masterminds/log-go"
 )
 
 type timeoutErr struct{}
@@ -58,6 +60,25 @@ func TestLogBrief(t *testing.T) {
 		}
 		if strings.Contains(got, "secret") || strings.Contains(got, "192.0.2") {
 			t.Errorf("logBrief(%q) = %q leaks", tc.err, got)
+		}
+	}
+}
+
+// TestSMTPConnLog checks that with smtp_relay, a connection error is
+// logged in full, but a reply from the relay only by its code.
+func TestSMTPConnLog(t *testing.T) {
+	buf := logAt(t, log.InfoLevel)
+	smtpConnLog(log.Warnf, "SMTP MAIL FROM", "localhost:587", false,
+		&textproto.Error{Code: 421, Msg: "4.4.2 previous delivery to bob@secret.invalid failed"})
+	smtpConnLog(log.Warnf, "Dial", "localhost:587", false,
+		&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
+	out := buf.String()
+	if strings.Contains(out, "secret") {
+		t.Errorf("the relay's reply text is logged:\n%s", out)
+	}
+	for _, want := range []string{"SMTP MAIL FROM failed: localhost:587, SMTP 421 4.4.2", "Dial failed: localhost:587, dial tcp: connection refused"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q:\n%s", want, out)
 		}
 	}
 }

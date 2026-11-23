@@ -184,10 +184,13 @@ func smtpLog(logf func(string, ...interface{}), what, serverAddr string, directM
 }
 
 // smtpConnLog is smtpLog for the steps before the recipients (dial, EHLO,
-// STARTTLS, AUTH, MAIL FROM): with smtp_relay their errors hold only the
-// operator's own settings and are logged in full.
+// STARTTLS, AUTH, MAIL FROM): with smtp_relay, an error of yamn's own or
+// of the network or TLS holds only the operator's settings and is logged
+// in full.  A reply from the relay is summed up like any other: its text
+// is the relay's and may name earlier recipients.
 func smtpConnLog(logf func(string, ...interface{}), what, serverAddr string, directMX bool, err error) {
-	if directMX {
+	var tp *textproto.Error
+	if directMX || errors.As(err, &tp) {
 		smtpLog(logf, what, serverAddr, directMX, err)
 		return
 	}
