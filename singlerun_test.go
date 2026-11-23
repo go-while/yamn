@@ -10,6 +10,15 @@ import (
 func setupSingleRun(t *testing.T) *fakeSMTP {
 	t.Helper()
 	server := setupFooReply(t, "")
+	// loopServer sets these globals; the ID log closes on return, the
+	// chunk DB doesn't.
+	oldPub, oldID, oldChunk := Pubring, IDDb, ChunkDb
+	t.Cleanup(func() {
+		if ChunkDb != nil && ChunkDb != oldChunk {
+			ChunkDb.Close()
+		}
+		Pubring, IDDb, ChunkDb = oldPub, oldID, oldChunk
+	})
 	cfg.Urls.Fetch = false
 	cfg.Remailer.Daemon = false
 	flag.Remailer = true
