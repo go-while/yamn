@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"slices"
 	"testing"
 )
@@ -59,5 +60,32 @@ func TestSingleRunWithFlushLeavesPool(t *testing.T) {
 	}
 	if got := sentTo(server); len(got) != 0 {
 		t.Fatalf("loopServer sent to %q; with -S the flush sends", got)
+	}
+}
+
+// TestSingleRunDeliversPooledMail checks that the single run sends pooled
+// mail (pool/m*) too: delivered, and gone from the pool.
+func TestSingleRunDeliversPooledMail(t *testing.T) {
+	server := setupSingleRun(t)
+	cfg.Pool.Size = 0
+	cfg.Pool.MinSend = 1
+	cfg.Pool.Rate = 100
+	file := writePoolMessage(t, "To: alice@example.invalid\n")
+	if err := loopServer(); err != nil {
+		t.Fatalf("loopServer: %s", err)
+	}
+	if _, err := os.Stat(file); err == nil {
+		t.Error("the pool file is still there")
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	delivered := false
+	for _, s := range server.sessions {
+		if slices.Contains(s, "alice@example.invalid") {
+			delivered = true
+		}
+	}
+	if !delivered {
+		t.Errorf("sessions %q, want a delivery to alice@example.invalid", server.sessions)
 	}
 }

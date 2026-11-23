@@ -104,10 +104,14 @@ Operate in server mode.  Normally used in combination with
 .B "-D"
 to continuously process, otherwise only a single iteration of read, process,
 send  will be performed.
-A run started from cron while the previous one still sends exits with an
-error, as the ID log is locked; leave enough time between runs, or start
-them with
+A run started from cron while the previous one still runs exits with an
+error, as the remailer's databases are locked; leave enough time between
+runs, or start them with
 .BR flock (1).
+The once-a-day limit on
+.B remailer-*
+replies per address is kept in memory, so such runs reply once per
+address per run.
 .TP
 .B "--meminfo"
 In server mode, log the process's memory use when it starts and with the
