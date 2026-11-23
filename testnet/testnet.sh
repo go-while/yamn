@@ -72,8 +72,11 @@ print(next(x["sha256"] for r in json.load(sys.stdin) for x in r["files"] if x["f
 		[ ! -e /usr/local/go ] || { echo 'build: /usr/local/go exists but has no go' >&2; exit 1; }
 		cd /tmp && rm -f $f &&
 		{ curl -fsSLO https://go.dev/dl/$f || wget -q https://go.dev/dl/$f; } &&
-		echo '$sum  $f' | sha256sum -c - >/dev/null &&
-		tar -C /usr/local -xzf $f && rm -f $f && /usr/local/go/bin/go version"
+		echo '$sum  $f' | sha256sum -c - >/dev/null || exit 1
+		# Unpack beside it and rename, so a failed tar leaves no half /usr/local/go.
+		n=/usr/local/.go-new.\$\$
+		{ mkdir \$n && tar -C \$n -xzf $f && mv \$n/go /usr/local/go; } || { rm -rf \$n $f; exit 1; }
+		rmdir \$n; rm -f $f; /usr/local/go/bin/go version"
 }
 
 case ${1:-} in
@@ -89,7 +92,10 @@ build)
 	git diff --quiet HEAD -- .. || echo "build: uncommitted changes are not built (HEAD $rev)" >&2
 	take "$BUILD_HOSTS" "$JUMP" || take any || { echo "build: no host from jobq.sh" >&2; exit 1; }
 	d=/root/yamn-build
-	trap '$SSH $BJ "root@$bh" "rm -rf $d"; jobq.sh unlock "$bh" "$bid"' EXIT
+	# The unlock must run even if the cleanup fails (set -e holds in traps),
+	# and on Ctrl-C or kill too.
+	trap '$SSH $BJ "root@$bh" "rm -rf $d" || :; jobq.sh unlock "$bh" "$bid"' EXIT
+	trap 'exit 130' INT TERM HUP
 	echo "build: $rev on $bh"
 	$SSH $BJ "root@$bh" "$GOBIN_PATH; command -v go >/dev/null" || goinstall "$gov"
 	git -C .. archive --format=tar HEAD | $SSH $BJ "root@$bh" "rm -rf $d && mkdir -p $d && tar -x -C $d"
