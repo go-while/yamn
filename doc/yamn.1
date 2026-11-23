@@ -366,7 +366,11 @@ Without
 .BR tor_socks ,
 mail to a
 .I .onion
-domain is refused.
+domain is refused (with
+.B mail.pipe
+or
+.BR mail.outfile ,
+yamn hands every recipient on as it is).
 .SS Several pingers
 By default the keyring and statistics come from a single pinger
 .RB ( urls.pubring
