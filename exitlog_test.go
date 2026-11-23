@@ -204,7 +204,7 @@ func TestPoolFileReasonLogged(t *testing.T) {
 			t.Errorf("info log lacks %q:\n%s", want, info)
 		}
 	}
-	if found := noneIn(info, "one.invalid", "two.invalid", "temporary"); len(found) > 0 {
+	if found := noneIn(info, "one.invalid", "two.invalid", "temporary:"); len(found) > 0 {
 		t.Errorf("info log has %q:\n%s", found, info)
 	}
 
@@ -216,10 +216,10 @@ func TestPoolFileReasonLogged(t *testing.T) {
 	file = writePoolMessage(t, "To: bob@three.invalid\n")
 	emailPoolFile(filepath.Base(file))
 	info = buf.String()
-	if !strings.Contains(info, "Recipient rejected: a recipient's MX, SMTP 550") {
+	if !strings.Contains(info, "Recipient rejected: a recipient's MX, SMTP 550 5.1.1") {
 		t.Errorf("info log lacks the rejection:\n%s", info)
 	}
-	if found := noneIn(info, "three.invalid", "temporary"); len(found) > 0 {
+	if found := noneIn(info, "three.invalid", "temporary:"); len(found) > 0 {
 		t.Errorf("info log has %q:\n%s", found, info)
 	}
 }

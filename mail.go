@@ -892,7 +892,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		err = errors.New("a .onion host needs mail.tor_socks")
 	}
 	if err != nil {
-		smtpLog(log.Warnf, "Dial", serverAddr, directMX, err)
+		smtpConnLog(log.Warnf, "Dial", serverAddr, directMX, err)
 		return
 	}
 	// Closing the connection also covers every early return below.  After a
@@ -906,13 +906,13 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 
 	client, err := smtp.NewClient(conn, relay)
 	if err != nil {
-		smtpLog(log.Warnf, "SMTP connection", serverAddr, directMX, err)
+		smtpConnLog(log.Warnf, "SMTP connection", serverAddr, directMX, err)
 		return
 	}
 	// net/smtp would say "EHLO localhost", which many servers count
 	// against the sender.
 	if err = client.Hello(mailDomain()); err != nil {
-		smtpLog(log.Warnf, "SMTP EHLO", serverAddr, directMX, err)
+		smtpConnLog(log.Warnf, "SMTP EHLO", serverAddr, directMX, err)
 		return
 	}
 	// Test if the remote MTA supports STARTTLS.  require_tls implies
@@ -921,7 +921,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 	ok, _ := client.Extension("STARTTLS")
 	if ok && useTLS {
 		if err = client.StartTLS(smtpTLSConfig(relay, directMX)); err != nil {
-			smtpLog(log.Warnf, "STARTTLS", serverAddr, directMX, err)
+			smtpConnLog(log.Warnf, "STARTTLS", serverAddr, directMX, err)
 			return
 		}
 	} else if !ok && isOnion(relay) {
@@ -956,7 +956,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 			auth = onionAuth{auth}
 		}
 		if err = client.Auth(auth); err != nil {
-			smtpLog(log.Warnf, "SMTP AUTH", serverAddr, directMX, err)
+			smtpConnLog(log.Warnf, "SMTP AUTH", serverAddr, directMX, err)
 			return
 		}
 	}
@@ -972,7 +972,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 	// A 5xx reply to MAIL FROM usually means the sender address or the relay
 	// is misconfigured, so it's not treated as permanent.
 	if err = client.Mail(sender); err != nil {
-		smtpLog(log.Warnf, "SMTP MAIL FROM", serverAddr, directMX, err)
+		smtpConnLog(log.Warnf, "SMTP MAIL FROM", serverAddr, directMX, err)
 		return
 	}
 

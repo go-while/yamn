@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/textproto"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -23,6 +24,9 @@ var (
 	errNoTLS      = errors.New("no TLS available and require_tls is set")
 	errRelayNoTLS = errors.New("configured relay does not offer STARTTLS")
 )
+
+// enhancedCode matches an RFC 3463 enhanced status code.
+var enhancedCode = regexp.MustCompile(`^[245]\.[0-9]{1,3}\.[0-9]{1,3}$`)
 
 // safeError marks an error whose whole text is safe to log: yamn's own
 // words, a file name or a count, nothing from the mail.
@@ -93,7 +97,13 @@ func errKinds(err error, kinds *[]string) {
 		errKinds(e.causes, kinds)
 		return
 	case *textproto.Error:
-		add(fmt.Sprintf("SMTP %d", e.Code))
+		code := fmt.Sprintf("SMTP %d", e.Code)
+		// The enhanced status code (RFC 3463), such as 5.1.1 or 5.7.1,
+		// holds no address and tells why.
+		if f := strings.Fields(e.Msg); len(f) > 0 && enhancedCode.MatchString(f[0]) {
+			code += " " + f[0]
+		}
+		add(code)
 		return
 	case safeError:
 		add(e.Error())
@@ -136,7 +146,11 @@ func netKind(err error) string {
 	case tls.AlertError, tls.RecordHeaderError:
 		return "TLS error"
 	case *net.OpError:
-		if e.Timeout() {
+		var dns *net.DNSError
+		switch {
+		case errors.As(e.Err, &dns):
+			return "DNS error"
+		case e.Timeout():
 			return "timeout"
 		}
 		return "network error"
@@ -167,6 +181,17 @@ func smtpLog(logf func(string, ...interface{}), what, serverAddr string, directM
 	}
 	logf("%s %s, %s", what, serverFor(serverAddr, directMX), logKinds(err))
 	log.Tracef("%s Server=%s, Error=%s", what, serverAddr, err)
+}
+
+// smtpConnLog is smtpLog for the steps before the recipients (dial, EHLO,
+// STARTTLS, AUTH, MAIL FROM): with smtp_relay their errors hold only the
+// operator's own settings and are logged in full.
+func smtpConnLog(logf func(string, ...interface{}), what, serverAddr string, directMX bool, err error) {
+	if directMX {
+		smtpLog(logf, what, serverAddr, directMX, err)
+		return
+	}
+	logf("%s failed: %s, %s", what, serverAddr, err)
 }
 
 // serverFor names a server in info and warn logs: smtp_relay by its

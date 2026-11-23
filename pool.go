@@ -118,7 +118,7 @@ func sendReplyFile(filename string) {
 		return
 	}
 	if err = mailBytes(content, []string{to.Address}); err != nil {
-		log.Infof("Failed to send remailer-* reply %s: %s", filename, logBrief(err))
+		log.Infof("Failed to send remailer-* reply %s: %s", filename, logKinds(err))
 		log.Tracef("Reply %s: %s", filename, err)
 	}
 }

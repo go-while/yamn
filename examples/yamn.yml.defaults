@@ -17,7 +17,8 @@
 # defaults: if a default changes, update it here.
 
 general:
-    # Log level: trace, debug, info, warn or error
+    # Log level: trace, debug, info, warn or error.  At trace level, an
+    # exit logs recipients, their mail servers and the servers' replies.
     loglevel: warn
     # Log to files.logfile instead of stderr
     logtofile: false

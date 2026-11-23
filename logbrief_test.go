@@ -34,12 +34,14 @@ func TestLogBrief(t *testing.T) {
 		err  error
 		want string
 	}{
-		{fmt.Errorf("%w: every recipient was rejected: %w", errPermanent, reject), "permanent: SMTP 550"},
-		{fmt.Errorf("mx.secret.invalid:25: no recipient accepted the message yet: %w", deferred), "temporary: SMTP 451"},
+		{fmt.Errorf("%w: every recipient was rejected: %w", errPermanent, reject), "permanent: SMTP 550 5.1.1"},
+		{fmt.Errorf("mx.secret.invalid:25: no recipient accepted the message yet: %w", deferred), "temporary: SMTP 451 4.3.0"},
 		{&pendingError{1, 3, errors.Join(fmt.Errorf("%w: x", errPermanent), deferred, timeoutErr{})},
-			"1 of 3 recipients still to do: SMTP 451, timeout"},
+			"1 of 3 recipients still to do: SMTP 451 4.3.0, timeout"},
 		{&net.DNSError{Err: "no such host", Name: "secret.invalid"}, "temporary: DNS error"},
 		{&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}, "temporary: network error"},
+		{&net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "mx.secret.invalid"}}, "temporary: DNS error"},
+		{&textproto.Error{Code: 554, Msg: "no enhanced code here, bob@secret.invalid"}, "temporary: SMTP 554"},
 		{fmt.Errorf("tls: %w", x509.HostnameError{Host: "mx.secret.invalid"}), "temporary: TLS certificate error"},
 		{fmt.Errorf("mx.secret.invalid:25: %w", errNoTLS), "temporary: " + errNoTLS.Error()},
 		{fmt.Errorf("%w: bob@secret.invalid is a .onion domain", errPermanent), "permanent: error"},
