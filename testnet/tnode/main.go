@@ -2,13 +2,17 @@
 // machines in testnet/nodes.txt, each with the domain <name>.yamn.test.
 //
 //	tnode mx  -nodes nodes.txt -self 11101 -deliver mix=/path/Maildir ...
-//	tnode www -serve /=/path/www -mlist2 /path/www ...
+//	tnode www -nodes nodes.txt -serve /=/path/www -mlist2 /path/www ...
 //	tnode mlist2 /path/www
 //
 // mx is an SMTP relay for the test network only.  Mail for its own domain
 // goes into the Maildir of the local part (before any "+"); mail for
 // another node's domain is forwarded to that node's mx; any other
 // recipient is refused, so nothing can leave the test network.
+//
+// Both accept connections only from the nodes the table lists by IP
+// address, loopback, and what -allow adds; no DNS is involved. Others get
+// "554" from mx and a closed connection from www.
 //
 // www serves directories over http, and can write an mlist2.txt that lists
 // every remailer in a pubring.mix as perfect, for the network's first
@@ -128,24 +132,35 @@ func mxMain(args []string) {
 	spool := fs.String("spool", "spool", "directory for mail waiting to be forwarded")
 	deliver := mapFlag{}
 	fs.Var(deliver, "deliver", "local part=Maildir, repeatable")
+	var allow listFlag
+	fs.Var(&allow, "allow", "also accept connections from this address or prefix, repeatable (the nodes and loopback always may)")
 	fs.Parse(args)
-	nodes, err := readNodes(*nodesFile, *port)
+	nodes, al, err := loadAllow(*nodesFile, *port, allow)
 	if err != nil {
 		log.Fatal(err)
 	}
-	me, ok := nodes[*self]
-	if !ok {
-		log.Fatalf("-self %q isn't in %s", *self, *nodesFile)
-	}
-	mx := &MX{Self: me, Nodes: nodes, Deliver: deliver, Spool: *spool}
-	if err := mx.Init(); err != nil {
+	mx, err := newMX(nodes, *self, deliver, *spool, al)
+	if err != nil {
 		log.Fatal(err)
 	}
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("mx %s listening on %s", me.Domain(), ln.Addr())
+	log.Printf("mx %s listening on %s", mx.Self.Domain(), ln.Addr())
 	go mx.ForwardLoop(nil)
 	log.Fatal(mx.Serve(ln))
+}
+
+// newMX sets up the mx of node self, accepting connections from al.
+func newMX(nodes map[string]Node, self string, deliver map[string]string, spool string, al *allowList) (*MX, error) {
+	me, ok := nodes[self]
+	if !ok {
+		return nil, fmt.Errorf("-self %q isn't in the nodes table", self)
+	}
+	mx := &MX{Self: me, Nodes: nodes, Deliver: deliver, Spool: spool, Allow: al}
+	if err := mx.Init(); err != nil {
+		return nil, err
+	}
+	return mx, nil
 }
