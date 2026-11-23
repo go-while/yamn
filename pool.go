@@ -118,7 +118,8 @@ func sendReplyFile(filename string) {
 		return
 	}
 	if err = mailBytes(content, []string{to.Address}); err != nil {
-		log.Infof("Failed to send remailer-* reply %s: %s", filename, err)
+		log.Infof("Failed to send remailer-* reply %s: %s", filename, logKinds(err))
+		log.Tracef("Reply %s: %s", filename, err)
 	}
 }
 
@@ -160,7 +161,12 @@ func poolOutboundSend() {
 func emailPoolFile(filename string) {
 	delFlag, err := mailPoolFile(path.Join(cfg.Files.Pooldir, filename))
 	if err != nil {
-		log.Warnf("Pool mailing failed: %s", err)
+		state := "kept for a retry"
+		if delFlag {
+			state = "dropped"
+		}
+		log.Warnf("%s: mailing failed, %s: %s", filename, state, logKinds(err))
+		log.Tracef("%s: %s", filename, err)
 		if delFlag {
 			// If delFlag is true, we delete the file, even though
 			// mailing failed.
@@ -268,7 +274,7 @@ func processMail(secret *keymgr.Secring) (err error) {
 	for _, key := range keys {
 		head, err = dir.Header(key)
 		if err != nil {
-			rejectMail(dir, key, fmt.Sprintf("getting headers failed: %s", err))
+			rejectMail(dir, key, "getting headers failed", err)
 			continue
 		}
 		// The Subject determines if the message needs remailer-foo handling
@@ -296,19 +302,21 @@ func processMail(secret *keymgr.Secring) (err error) {
 		var mailMsg *mail.Message
 		mailMsg, err := dir.Message(key)
 		if err != nil {
-			rejectMail(dir, key, fmt.Sprintf("reading message failed: %s", err))
+			rejectMail(dir, key, "reading message failed", err)
 			continue
 		}
 		var msg []byte
 		// Convert the armored Yamn message to its byte components
 		msg, err = stripArmor(mailMsg.Body)
 		if err != nil {
-			rejectMail(dir, key, fmt.Sprintf("not a yamn message (%s), From=%q, Subject=%q",
-				err, head.Get("From"), head.Get("Subject")))
+			// From and Subject (often a bounce of delivered mail, quoting
+			// its recipient) only at trace level.
+			log.Tracef("%s: not a yamn message, From=%q, Subject=%q", key, head.Get("From"), head.Get("Subject"))
+			rejectMail(dir, key, "not a yamn message", err)
 			continue
 		}
 		if msg == nil {
-			rejectMail(dir, key, "dearmor returned zero bytes")
+			rejectMail(dir, key, "dearmor returned zero bytes", nil)
 			continue
 		}
 		err = decodeSafely(msg, secret)
@@ -349,7 +357,13 @@ func rejectedMaildir() maildir.Dir {
 // rejectMail moves a message that can't be processed from the remailer's
 // Maildir to the rejected folder.  If that fails, the message stays where it
 // is.
-func rejectMail(dir maildir.Dir, key, reason string) {
+//
+// The parser's error, which can quote a line of the mail (a recipient, a
+// subject), is logged at trace level only.
+func rejectMail(dir maildir.Dir, key, reason string, detail error) {
+	if detail != nil {
+		log.Tracef("%s: %s: %s", key, reason, detail)
+	}
 	rejected := rejectedMaildir()
 	err := rejected.Create()
 	if err == nil {
