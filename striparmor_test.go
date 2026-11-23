@@ -136,3 +136,32 @@ func TestStripArmorCapBoundary(t *testing.T) {
 		t.Errorf("%d base64 bytes: err = %v, want a digest error", len(packet), err)
 	}
 }
+
+// Armor with CRLF line ends, or without a newline after the End
+// cutmark, still decodes; a line over bufio.Scanner's limit is reported
+// as a read error, not as a missing cutmark.
+func TestStripArmorLineEnds(t *testing.T) {
+	payload := make([]byte, messageBytes)
+	if _, err := rand.Read(payload); err != nil {
+		t.Fatal(err)
+	}
+	var b bytes.Buffer
+	armor(&b, payload)
+	crlf := strings.ReplaceAll(b.String(), "\n", "\r\n")
+	noFinalNL := strings.TrimSuffix(b.String(), "\n")
+	for name, msg := range map[string]string{"CRLF": crlf, "no final newline": noFinalNL} {
+		got, err := stripArmor(strings.NewReader(msg))
+		if err != nil || !bytes.Equal(got, payload) {
+			t.Errorf("%s: err = %v, payload equal %v", name, err, bytes.Equal(got, payload))
+		}
+	}
+	long := "::\n\n-----BEGIN REMAILER MESSAGE-----\n20480\n" + strings.Repeat("0", 64) + "\n" +
+		strings.Repeat("A", 70000) + "\n-----END REMAILER MESSAGE-----\n"
+	_, err := stripArmor(strings.NewReader(long))
+	if err == nil {
+		t.Fatal("a 70000 byte line was accepted")
+	}
+	if strings.Contains(err.Error(), "End cutmark") {
+		t.Errorf("err = %v, want the read error", err)
+	}
+}
