@@ -1053,11 +1053,9 @@ func isTemporarySMTP(err error) bool {
 }
 
 // sendmail delivers through the configured relay only (no direct MX
-// delivery), with the same TLS policy and timeouts as smtpSend.
+// delivery), with the same TLS policy and timeouts as smtpSend, which
+// also logs what failed.
 func sendmail(payload []byte, sendTo []string) error {
 	_, err := smtpSend(cfg.Mail.SMTPRelay, cfg.Mail.SMTPPort, false, payload, sendTo)
-	if err != nil {
-		log.Warn(err)
-	}
 	return err
 }
