@@ -39,10 +39,14 @@ isn't announced to the public pingers, and no mail can leave it.
 ## Use
 
 `testnet.sh` runs on a workstation that reaches the nodes as root over ssh.
-`build` compiles nothing on the workstation or the nodes: it takes a free
-test container from the job queue (`jobq.sh`, override the agent name with
-`JOBQ_AGENT=`), builds the committed HEAD there with that host's Go and
-copies the two static binaries back to `build/`.
+`build` compiles nothing on the workstation or the nodes: it takes a test
+host from the job queue (`jobq.sh`, override the agent name with
+`JOBQ_AGENT=`), builds the committed HEAD there and copies the two static
+binaries back to `build/`. It asks for one of the KVM VMs in `BUILD_HOSTS`
+first (reached through the jump host `JUMP`, default mbox-mo1) and falls
+back to any free nuc container when the VM it got does not answer. A host
+without Go gets the official go.dev tarball of the version in `go.mod`
+(checked against go.dev's sha256) in `/usr/local/go`.
 
 ```sh
 ./testnet.sh build     # static yamn (committed HEAD) and tnode
