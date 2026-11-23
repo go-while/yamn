@@ -118,7 +118,8 @@ func sendReplyFile(filename string) {
 		return
 	}
 	if err = mailBytes(content, []string{to.Address}); err != nil {
-		log.Infof("Failed to send remailer-* reply %s: %s", filename, err)
+		log.Infof("Failed to send remailer-* reply %s: %s", filename, logBrief(err))
+		log.Tracef("Reply %s: %s", filename, err)
 	}
 }
 
@@ -160,7 +161,12 @@ func poolOutboundSend() {
 func emailPoolFile(filename string) {
 	delFlag, err := mailPoolFile(path.Join(cfg.Files.Pooldir, filename))
 	if err != nil {
-		log.Warnf("Pool mailing failed: %s", err)
+		state := "kept for a retry"
+		if delFlag {
+			state = "dropped"
+		}
+		log.Warnf("%s: mailing failed, %s: %s", filename, state, logBrief(err))
+		log.Tracef("%s: %s", filename, err)
 		if delFlag {
 			// If delFlag is true, we delete the file, even though
 			// mailing failed.
@@ -303,8 +309,10 @@ func processMail(secret *keymgr.Secring) (err error) {
 		// Convert the armored Yamn message to its byte components
 		msg, err = stripArmor(mailMsg.Body)
 		if err != nil {
-			rejectMail(dir, key, fmt.Sprintf("not a yamn message (%s), From=%q, Subject=%q",
-				err, head.Get("From"), head.Get("Subject")))
+			// From and Subject (often a bounce of delivered mail, quoting
+			// its recipient) only at trace level.
+			log.Tracef("%s: not a yamn message, From=%q, Subject=%q", key, head.Get("From"), head.Get("Subject"))
+			rejectMail(dir, key, fmt.Sprintf("not a yamn message (%s)", err))
 			continue
 		}
 		if msg == nil {

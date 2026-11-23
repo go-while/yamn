@@ -797,7 +797,8 @@ func remailerFoo(subject, from string) (err error) {
 	}
 	// The From header can be forged, so reply at most once a day per address.
 	if !fooReplies.allowed(sender) {
-		err = fmt.Errorf("already replied to %s today, ignoring %s", sender, subject)
+		log.Tracef("already replied to %s today", sender)
+		err = fmt.Errorf("already replied to this sender today, ignoring %s", subject)
 		return
 	}
 	// Addresses on the destination block list get no replies either.  If
@@ -808,7 +809,8 @@ func remailerFoo(subject, from string) (err error) {
 		return
 	}
 	if destBlocked(blockList, sender) {
-		err = fmt.Errorf("%s is on the destination block list, ignoring %s", sender, subject)
+		log.Tracef("%s is on the destination block list", sender)
+		err = fmt.Errorf("the sender is on the destination block list, ignoring %s", subject)
 		return
 	}
 	m := quickmail.NewMessage()

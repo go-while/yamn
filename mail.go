@@ -540,7 +540,8 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 	var allowed []string
 	for _, addy := range sendTo {
 		if destBlocked(blockList, addy) {
-			log.Infof("%s: recipient %s is on the destination block list", filename, addy)
+			log.Infof("%s: a recipient is on the destination block list", filename)
+			log.Tracef("%s: recipient %s is on the destination block list", filename, addy)
 			continue
 		}
 		allowed = append(allowed, addy)
@@ -678,14 +679,15 @@ func relaySend(payload []byte, sendTo []string) (done []string, err error) {
 	switch {
 	case temporary(relayErr) || temporary(onionErr):
 		// Not wrapped: some recipients still need a try.
-		err = fmt.Errorf("%d of %d recipients still to do: %v",
-			len(sendTo)-len(done), len(sendTo), errors.Join(relayErr, onionErr))
+		err = &pendingError{len(sendTo) - len(done), len(sendTo), errors.Join(relayErr, onionErr)}
 	case len(viaRelay) == 0:
 		err = onionErr
 	case relayErr != nil && onionErr != nil:
 		err = fmt.Errorf("%w: no recipient got the message: %w", errPermanent, errors.Join(relayErr, onionErr))
 	case relayErr != nil || onionErr != nil:
-		log.Infof("Delivered, but some recipients were refused: %s", errors.Join(relayErr, onionErr))
+		refused := errors.Join(relayErr, onionErr)
+		log.Infof("Delivered, but some recipients were refused: %s", logBrief(refused))
+		log.Tracef("Refused recipients: %s", refused)
 	}
 	return
 }
@@ -699,7 +701,8 @@ func mxSend(payload []byte, sendTo []string) (done []string, err error) {
 	for _, group := range groupByDomain(sendTo) {
 		mx, lerr := mxLookup(group[0])
 		if lerr != nil {
-			log.Warn(lerr)
+			log.Warnf("MX lookup failed: %s", logBrief(lerr))
+			log.Trace(lerr)
 			errs = append(errs, lerr)
 			if errors.Is(lerr, errPermanent) {
 				done = append(done, group...)
@@ -725,12 +728,13 @@ func mxSend(payload []byte, sendTo []string) (done []string, err error) {
 	case pending:
 		// Not wrapped: some of errs may be errPermanent, but the
 		// message isn't done with.
-		err = fmt.Errorf("%d of %d recipients still to do: %v",
-			len(sendTo)-len(done), len(sendTo), errors.Join(errs...))
+		err = &pendingError{len(sendTo) - len(done), len(sendTo), errors.Join(errs...)}
 	case !delivered:
 		err = fmt.Errorf("%w: no recipient got the message: %w", errPermanent, errors.Join(errs...))
 	case len(errs) > 0:
-		log.Infof("Delivered, but some recipients were refused: %s", errors.Join(errs...))
+		refused := errors.Join(errs...)
+		log.Infof("Delivered, but some recipients were refused: %s", logBrief(refused))
+		log.Tracef("Refused recipients: %s", refused)
 	}
 	return
 }
@@ -885,7 +889,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		err = errors.New("a .onion host needs mail.tor_socks")
 	}
 	if err != nil {
-		log.Warnf("Dial Error: Server=%s, Error=%s", serverAddr, err)
+		smtpLog(log.Warnf, "Dial", serverAddr, directMX, err)
 		return
 	}
 	// Closing the connection also covers every early return below.  After a
@@ -899,17 +903,13 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 
 	client, err := smtp.NewClient(conn, relay)
 	if err != nil {
-		log.Warnf(
-			"SMTP Connection Error: Server=%s, Error=%s",
-			serverAddr,
-			err,
-		)
+		smtpLog(log.Warnf, "SMTP connection", serverAddr, directMX, err)
 		return
 	}
 	// net/smtp would say "EHLO localhost", which many servers count
 	// against the sender.
 	if err = client.Hello(mailDomain()); err != nil {
-		log.Warnf("SMTP EHLO Error: Server=%s, Error=%s", serverAddr, err)
+		smtpLog(log.Warnf, "SMTP EHLO", serverAddr, directMX, err)
 		return
 	}
 	// Test if the remote MTA supports STARTTLS.  require_tls implies
@@ -918,28 +918,25 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 	ok, _ := client.Extension("STARTTLS")
 	if ok && useTLS {
 		if err = client.StartTLS(smtpTLSConfig(relay, directMX)); err != nil {
-			log.Warnf(
-				"Error performing STARTTLS: Server=%s, Error=%s",
-				serverAddr,
-				err,
-			)
+			smtpLog(log.Warnf, "STARTTLS", serverAddr, directMX, err)
 			return
 		}
 	} else if !ok && isOnion(relay) {
 		log.Tracef("%s does not offer STARTTLS. Tor encrypts the connection.", serverAddr)
 	} else if cfg.Mail.RequireTLS {
-		err = fmt.Errorf("%s: no TLS available and require_tls is set", serverAddr)
-		log.Warn(err)
+		err = fmt.Errorf("%s: %w", serverAddr, errNoTLS)
+		smtpLog(log.Warnf, "Delivery", serverAddr, directMX, err)
 		return
 	} else if !ok && useTLS && !directMX && !isLoopbackHost(relay) {
 		// The configured relay is expected to offer STARTTLS.  If it
 		// doesn't, it's misconfigured or STARTTLS was stripped in
 		// transit, so don't fall back to plaintext.
-		err = fmt.Errorf("%s: configured relay does not offer STARTTLS", serverAddr)
-		log.Warn(err)
+		err = fmt.Errorf("%s: %w", serverAddr, errRelayNoTLS)
+		smtpLog(log.Warnf, "Delivery", serverAddr, directMX, err)
 		return
 	} else if !ok {
-		log.Infof("%s does not offer STARTTLS. Sending without TLS.", serverAddr)
+		log.Infof("%s does not offer STARTTLS. Sending without TLS.", serverFor(serverAddr, directMX))
+		log.Tracef("%s does not offer STARTTLS.", serverAddr)
 	}
 	// If AUTH is supported and a UserID and Password are configured, try to
 	// authenticate to the remote MTA.  Credentials are only ever sent to the
@@ -956,7 +953,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 			auth = onionAuth{auth}
 		}
 		if err = client.Auth(auth); err != nil {
-			log.Warnf("Auth Error:  Server=%s, Error=%s", serverAddr, err)
+			smtpLog(log.Warnf, "SMTP AUTH", serverAddr, directMX, err)
 			return
 		}
 	}
@@ -972,7 +969,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 	// A 5xx reply to MAIL FROM usually means the sender address or the relay
 	// is misconfigured, so it's not treated as permanent.
 	if err = client.Mail(sender); err != nil {
-		log.Warnf("SMTP Error: Server=%s, Error=%s", serverAddr, err)
+		smtpLog(log.Warnf, "SMTP MAIL FROM", serverAddr, directMX, err)
 		return
 	}
 
@@ -984,16 +981,16 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		case rerr == nil:
 			accepted = append(accepted, addr)
 		case permanentFor(rerr, directMX):
-			log.Infof("Recipient rejected: Server=%s, Error=%s", serverAddr, rerr)
+			smtpLog(log.Infof, "Recipient rejected:", serverAddr, directMX, rerr)
 			refused = append(refused, addr)
 			lastErr = rerr
 		case isTemporarySMTP(rerr):
-			log.Infof("Recipient deferred: Server=%s, Error=%s", serverAddr, rerr)
+			smtpLog(log.Infof, "Recipient deferred:", serverAddr, directMX, rerr)
 			deferred = append(deferred, addr)
 			lastErr = rerr
 		default:
 			// A network error, or the relay refusing to relay.
-			log.Warnf("RCPT Error: Server=%s, Error=%s", serverAddr, rerr)
+			smtpLog(log.Warnf, "SMTP RCPT", serverAddr, directMX, rerr)
 			return nil, rerr
 		}
 	}
@@ -1003,7 +1000,7 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 		} else {
 			err = fmt.Errorf("%w: every recipient was rejected: %w", errPermanent, lastErr)
 		}
-		log.Warn(err)
+		smtpLog(log.Warnf, "Delivery", serverAddr, directMX, err)
 		return refused, err
 	}
 
@@ -1021,15 +1018,15 @@ func smtpSend(relay, port string, directMX bool, payload []byte, sendTo []string
 	case permanentFor(err, directMX):
 		done = append(done, accepted...)
 		err = fmt.Errorf("%w: message rejected: %w", errPermanent, err)
-		log.Warnf("Error: %s", err)
+		smtpLog(log.Warnf, "SMTP DATA", serverAddr, directMX, err)
 	default:
-		log.Warnf("Error: %s", err)
+		smtpLog(log.Warnf, "SMTP DATA", serverAddr, directMX, err)
 		return done, err
 	}
 	if len(deferred) > 0 {
 		// Not wrapped, even after a 5xx to DATA: the deferred
 		// recipients still need a try.
-		err = fmt.Errorf("%s: %d recipients deferred: %v (message: %v)", serverAddr, len(deferred), lastErr, err)
+		err = &pendingError{len(deferred), len(sendTo), errors.Join(lastErr, err)}
 	}
 	return done, err
 }
