@@ -65,11 +65,16 @@ func TestLogBrief(t *testing.T) {
 }
 
 // TestSMTPConnLog checks that with smtp_relay, a connection error is
-// logged in full, but a reply from the relay only by its code.
+// logged in full, but a reply from the relay (well-formed or not), or any
+// other error, only by its code or kind.
 func TestSMTPConnLog(t *testing.T) {
 	buf := logAt(t, log.InfoLevel)
 	smtpConnLog(log.Warnf, "SMTP MAIL FROM", "localhost:587", false,
 		&textproto.Error{Code: 421, Msg: "4.4.2 previous delivery to bob@secret.invalid failed"})
+	smtpConnLog(log.Warnf, "SMTP connection", "localhost:587", false,
+		textproto.ProtocolError("short response: oops previous delivery to bob@secret.invalid"))
+	smtpConnLog(log.Warnf, "SMTP EHLO", "localhost:587", false,
+		errors.New("unexpected text from bob@secret.invalid"))
 	smtpConnLog(log.Warnf, "Dial", "localhost:587", false,
 		&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
 	out := buf.String()

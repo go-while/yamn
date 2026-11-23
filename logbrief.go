@@ -184,17 +184,40 @@ func smtpLog(logf func(string, ...interface{}), what, serverAddr string, directM
 }
 
 // smtpConnLog is smtpLog for the steps before the recipients (dial, EHLO,
-// STARTTLS, AUTH, MAIL FROM): with smtp_relay, an error of yamn's own or
-// of the network or TLS holds only the operator's settings and is logged
-// in full.  A reply from the relay is summed up like any other: its text
+// STARTTLS, AUTH, MAIL FROM): with smtp_relay, a network, DNS or TLS error,
+// or one of yamn's TLS policy errors, holds only the operator's settings
+// and is logged in full.  Anything else, a reply from the relay above all
+// (well-formed or not), is summed up like the other SMTP lines: its text
 // is the relay's and may name earlier recipients.
 func smtpConnLog(logf func(string, ...interface{}), what, serverAddr string, directMX bool, err error) {
-	var tp *textproto.Error
-	if directMX || errors.As(err, &tp) {
+	if directMX || !connErrorSafe(err) {
 		smtpLog(logf, what, serverAddr, directMX, err)
 		return
 	}
 	logf("%s failed: %s, %s", what, serverAddr, err)
+}
+
+// connErrorSafe reports whether err is one whose text holds no reply text
+// from the server: a network, DNS or TLS error, or errNoTLS or
+// errRelayNoTLS.
+func connErrorSafe(err error) bool {
+	var tp *textproto.Error
+	var pe textproto.ProtocolError
+	if errors.As(err, &tp) || errors.As(err, &pe) {
+		return false
+	}
+	var op *net.OpError
+	var dns *net.DNSError
+	var cert *tls.CertificateVerificationError
+	var unknownCA x509.UnknownAuthorityError
+	var host x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	var alert tls.AlertError
+	var record tls.RecordHeaderError
+	return errors.As(err, &op) || errors.As(err, &dns) || errors.As(err, &cert) ||
+		errors.As(err, &unknownCA) || errors.As(err, &host) || errors.As(err, &invalid) ||
+		errors.As(err, &alert) || errors.As(err, &record) ||
+		errors.Is(err, errNoTLS) || errors.Is(err, errRelayNoTLS)
 }
 
 // serverFor names a server in info and warn logs: smtp_relay by its
