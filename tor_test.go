@@ -344,6 +344,103 @@ func TestOnionRecipientWithoutTor(t *testing.T) {
 	}
 }
 
+// TestOnionViaRelayWithoutTor checks that without tor_socks, .onion
+// recipients are refused for good instead of being handed to smtp_relay
+// (yamn(1): "Without tor_socks, mail to a .onion domain is refused"),
+// while the other recipients still go through the relay.
+func TestOnionViaRelayWithoutTor(t *testing.T) {
+	server := setupDeliveryTest(t)
+	cfg.Mail.TorSocks = ""
+	onion := testOnion(9)
+	file := writePoolMessage(t, "To: a@one.invalid, o@"+onion+"\n")
+	if _, err := mailPoolFile(file); err != nil {
+		t.Errorf("mixed recipients: error %v; want delivered to a@one.invalid", err)
+	}
+	server.mu.Lock()
+	if want := [][]string{{"a@one.invalid"}}; !slices.EqualFunc(server.sessions, want, slices.Equal) {
+		t.Errorf("relay sessions %q, want %q", server.sessions, want)
+	}
+	server.mu.Unlock()
+
+	server = setupDeliveryTest(t)
+	cfg.Mail.TorSocks = ""
+	file = writePoolMessage(t, "To: o@"+onion+"\n")
+	if del, err := mailPoolFile(file); !del || !errors.Is(err, errPermanent) {
+		t.Errorf("only a .onion recipient: delete %v, error %v; want a permanent error", del, err)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if len(server.dialed) > 0 {
+		t.Errorf("dialed %q", server.dialed)
+	}
+}
+
+// TestOnionViaRelayWithoutTorRetry checks that when the relay defers, a
+// refused .onion recipient (here in upper case) is noted as done and only
+// the relay's recipient waits for the retry, without the relay ever being
+// given the .onion recipient.
+func TestOnionViaRelayWithoutTorRetry(t *testing.T) {
+	server := setupDeliveryTest(t)
+	cfg.Mail.TorSocks = ""
+	server.rcptReply = map[string]string{"a@one.invalid": "450 4.2.0 try again later"}
+	onion := strings.ToUpper(testOnion(9))
+	file := writePoolMessage(t, "To: a@one.invalid, o@"+onion+"\n")
+	if del, err := mailPoolFile(file); del || err == nil || errors.Is(err, errPermanent) {
+		t.Errorf("delete %v, error %v; want a temporary error", del, err)
+	}
+	content, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("pool file not kept: %v", err)
+	}
+	if _, done, _ := parseInternalHeader(content); len(done) != 1 || !strings.EqualFold(done[0], "o@"+onion) {
+		t.Errorf("done %q, want the .onion recipient", done)
+	}
+	// The retry, now that the relay accepts, goes to the relay's
+	// recipient only and finishes the pool file.
+	server.mu.Lock()
+	server.rcptReply = nil
+	server.mu.Unlock()
+	emailPoolFile(filepath.Base(file))
+	if _, err := os.Stat(file); err == nil {
+		t.Error("retry: the pool file is still there")
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	for _, r := range server.rcpts {
+		if strings.EqualFold(r, "o@"+onion) {
+			t.Errorf("the relay was given %s", r)
+		}
+	}
+	if want := [][]string{{"a@one.invalid"}}; !slices.EqualFunc(server.sessions, want, slices.Equal) {
+		t.Errorf("relay sessions %q, want %q", server.sessions, want)
+	}
+}
+
+// TestOnionViaRelayWithoutTorRefusals checks the permanent cases without
+// tor_socks: an invalid onion name is refused like a valid one, and when
+// the relay rejects its recipient for good too, the message fails for good.
+func TestOnionViaRelayWithoutTorRefusals(t *testing.T) {
+	server := setupDeliveryTest(t)
+	cfg.Mail.TorSocks = ""
+	file := writePoolMessage(t, "To: o@expyuzz4wqqyqhjn.onion\n")
+	if del, err := mailPoolFile(file); !del || !errors.Is(err, errPermanent) {
+		t.Errorf("invalid onion: delete %v, error %v; want a permanent error", del, err)
+	}
+
+	server.rcptReply = map[string]string{"a@one.invalid": "550 5.1.1 no such user"}
+	file = writePoolMessage(t, "To: a@one.invalid, o@"+testOnion(9)+"\n")
+	if del, err := mailPoolFile(file); !del || !errors.Is(err, errPermanent) {
+		t.Errorf("both refused: delete %v, error %v; want a permanent error", del, err)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	for _, r := range server.rcpts {
+		if strings.HasSuffix(strings.ToLower(r), ".onion") {
+			t.Errorf("the relay was given %s", r)
+		}
+	}
+}
+
 // TestOnionMX checks that a .onion MX is used through tor_socks, and
 // skipped without it.
 func TestOnionMX(t *testing.T) {
