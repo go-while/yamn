@@ -7,7 +7,10 @@ Status values: **open**, **in progress**, **fixed** (with commit).
 
 Y-23 to Y-52 come from a second review of `master` at `15acb78`
 (2026-10-21; crypto/packets, mail/network, client/config). Y-53 to Y-57
-were found later. Each status line names the tests that came with the fix.
+were found later. Y-58 to Y-60 and Y-62 to Y-65 come from three outside
+reviews of `master` at `ea98ade` (2026-11-23), each checked in the code
+before it was listed; they also reopened Y-48. Y-61 comes from the review
+of the Y-59 fix. Each status line names the tests that came with the fix.
 
 | ID | Severity | Summary | Status |
 |---|---|---|---|
@@ -58,7 +61,7 @@ were found later. Each status line names the tests that came with the fix.
 | [Y-45](#y-45-config-silent-fallbacks-unknown-keys-no-value-checks) | Low | Config: silent fallbacks, unknown keys, no value checks | fixed (6182aa3) |
 | [Y-46](#y-46-client-exit-status-and-argument-checks) | Low | Client: exit status and argument checks | fixed (b2b3976) |
 | [Y-47](#y-47-the-client-keeps-the-from-address-and-reply-to) | Low | The client keeps the From address and Reply-To | fixed (3510062) |
-| [Y-48](#y-48-logs-reveal-recipients-and-chains) | Low | Logs reveal recipients and chains | fixed (36d0474) |
+| [Y-48](#y-48-logs-reveal-recipients-and-chains) | Low | Logs reveal recipients and chains | fixed (36d0474 client; cafc93f exit, #87) |
 | [Y-49](#y-49-the-keyring-is-fetched-at-send-time) | Low | The keyring is fetched at send time | fixed (6902217) |
 | [Y-50](#y-50-smaller-mail-issues) | Info | Smaller mail issues | fixed (12 commits, see entry) |
 | [Y-51](#y-51-smaller-client-and-documentation-issues) | Info | Smaller client and documentation issues | fixed (f221517) |
@@ -68,6 +71,14 @@ were found later. Each status line names the tests that came with the fix.
 | [Y-55](#y-55-one-line-over-64-kb-makes-a-whole-keyring-or-stats-file-unusable) | Medium | One line over 64 KB makes a whole keyring or stats file unusable | fixed (86774a6) |
 | [Y-56](#y-56-yamn-runs-as-root-without-complaint) | Low | yamn runs as root without complaint | fixed (c8a0cd4, d30f12b) |
 | [Y-57](#y-57-a-second-remailer-on-the-same-files-panics) | Low | A second remailer on the same files panics | fixed (c27ca3b) |
+| [Y-58](#y-58-incoming-armor-is-collected-without-a-size-limit) | Low | Incoming armor is collected without a size limit | fixed (8d3229c, #84) |
+| [Y-59](#y-59-a-single-remailer-run-doesnt-send) | Medium | A single remailer run doesn't send | fixed (203c58e, #85) |
+| [Y-60](#y-60-onion-recipients-go-to-smtp_relay-without-tor_socks) | Low | `.onion` recipients go to `smtp_relay` without `tor_socks` | fixed (778ea74, #86) |
+| [Y-61](#y-61-the-remailer--reply-limit-is-per-process) | Low | The `remailer-*` reply limit is per process | open |
+| [Y-62](#y-62-a-relays-5xx-to-one-recipient-holds-back-the-others) | Low | A relay's 5xx to one recipient holds back the others | open |
+| [Y-63](#y-63-disk-errors-in-the-daemons-own-work-panic) | Low | Disk errors in the daemon's own work panic | open |
+| [Y-64](#y-64-yamn--r-reads-stdin-without-a-limit) | Low | `yamn -R` reads stdin without a limit | open |
+| [Y-65](#y-65-notes-from-the-outside-reviews) | Info | Notes from the outside reviews | see entry |
 
 ---
 
@@ -651,6 +662,23 @@ were found later. Each status line names the tests that came with the fix.
   other keys. Tests: `TestLineScanner`, `TestPubringLongLine`,
   `TestStatsLongLine`.
 
+### Y-59: A single remailer run doesn't send
+
+- **Where:** `server.go` (`loopServer`).
+- **Impact:** yamn(1) says `-M` without `-D` performs "a single iteration
+  of read, process, send", but only the daemon's pool goroutine called
+  `sendPoolBatch`. With daemon mode off (neither `-D` nor
+  `remailer.daemon`) and without `-S` (which flushes the pool afterwards),
+  nothing was sent. A remailer run from cron decoded its mail and left it
+  in the pool, `remailer-*` replies too (pooled since Y-28), until a
+  daemon or `yamn -S` sent them.
+- **Fix:** end the single pass with one pool batch, except with `-S`.
+- **Found:** outside review (2026-11-23), confirmed by reading.
+- **Status:** fixed in `203c58e` to `c74d894` (branch
+  `fix/59-nondaemon-send`, #85); yamn(1) notes on cron runs. Tests:
+  `TestSingleRunSendsPool`, `TestSingleRunDeliversPooledMail`,
+  `TestSingleRunWithFlushLeavesPool`.
+
 ## Low
 
 ### Y-14: Biased shuffle
@@ -1032,8 +1060,19 @@ were found later. Each status line names the tests that came with the fix.
   - Create the log file 0600.
   - Mask the password in `--debug`.
 - **Found:** review 2, M-13 and K-18 (from reading the code).
-- **Status:** fixed in `36d0474` (branch `fix/48-client-logging`, #57). Tests:
+- **Status:** the client, log file and password parts were fixed in
+  `36d0474` (branch `fix/48-client-logging`, #57). Tests:
   `TestClientChainNotLogged`, `TestDebugHidesPassword`, `TestLogFileMode`.
+  The exit side (mail.go, pool.go, server.go) was left; three outside
+  reviews (2026-11-23) found it still logged recipients, MX hosts, SMTP
+  replies, rejected mail's From and Subject, and remailer-* requesters at
+  info and warn. Fixed in `cafc93f` to `3aec393` (branch
+  `fix/48-exit-logging`, #87): those lines give the pool file, SMTP and
+  enhanced codes, error kinds and yamn's own reasons; the full text is at
+  trace level. Tests: `TestExitLogsNoRecipients`,
+  `TestRelayLogsNoRecipients`, `TestRejectedMailLogsNoHeaders`,
+  `TestFooRefusalNamesNoSender`, `TestReceivedMailErrorsNotLogged`,
+  `TestPoolFileReasonLogged`, `TestLogBrief`, `TestSMTPConnLog`.
 
 ### Y-49: The keyring is fetched at send time
 
@@ -1112,6 +1151,88 @@ were found later. Each status line names the tests that came with the fix.
   process: is another yamn remailer running with these files?` and exits
   with 1. Tested with two remailers on one directory. Tests:
   `TestDBLocked`, `TestNewIDLogLocked`, `TestNewIDLogInvalidDays`.
+
+### Y-58: Incoming armor is collected without a size limit
+
+- **Where:** `utils.go` (`stripArmor`).
+- **Impact:** the base64 of an incoming remailer message was collected
+  without a limit and decoded before the size check, so anyone who mails
+  a remailer could make it hold about twice a large mail's base64 in
+  memory (yamn set no total limit; only an MTA's message size limit
+  applies). It also read on after the End cutmark and could report a
+  read error before it as a missing cutmark.
+- **Fix:** refuse the message once the base64 passes a packet's size
+  (27308 bytes); stop at the End cutmark; check `scanner.Err()`.
+- **Found:** outside review (2026-11-23), confirmed by reading and a test.
+- **Status:** fixed in `8d3229c` to `fc02f5f` (branch
+  `fix/58-striparmor-bounds`, #84). Tests: `TestStripArmorOversizedPayload`,
+  `TestStripArmorStopsAtEndCutmark`, `TestStripArmorReadError`,
+  `TestStripArmorTruncatedHeader`, `TestStripArmorCapBoundary`,
+  `TestStripArmorLineEnds`, `TestStripArmorErrorAfterEnd`,
+  `TestStripArmorValidPacket`.
+
+### Y-60: `.onion` recipients go to `smtp_relay` without `tor_socks`
+
+- **Where:** `mail.go` (`relaySend`).
+- **Impact:** yamn(1) says mail to a `.onion` domain is refused without
+  `tor_socks`; with `mx_relay` off, `relaySend` handed such recipients to
+  `smtp_relay`, which can't deliver them unless it routes `.onion` itself
+  and may look the name up in DNS.
+- **Fix:** split `.onion` recipients off to the MX path, which refuses
+  them for good without `tor_socks`.
+- **Found:** outside review (2026-11-23), confirmed by reading.
+- **Status:** fixed in `778ea74` to `8501895` (branch
+  `fix/60-onion-without-tor`, #86). Tests: `TestOnionViaRelayWithoutTor`,
+  `TestOnionViaRelayWithoutTorRetry`, `TestOnionViaRelayWithoutTorRefusals`.
+
+### Y-61: The `remailer-*` reply limit is per process
+
+- **Where:** `replylimit.go` (`fooReplies`), used by `remailerFoo`.
+- **Impact:** the once-a-day limit per address (Y-19) is kept in memory
+  and starts empty in every process, so separate runs from cron (which
+  send since Y-59) can reply again to the same address on the same day.
+  yamn(1) says so with the Y-59 fix (#85).
+- **Fix:** keep the limiter (day, address hashes) in a small file next to
+  the pool.
+- **Found:** council review of the Y-59 fix (2026-11-23).
+- **Status:** open.
+
+### Y-62: A relay's 5xx to one recipient holds back the others
+
+- **Where:** `mail.go` (`smtpSend`, `permanentFor`).
+- **Impact:** from `smtp_relay`, only a 5.1.x reply to RCPT counts as a
+  refused recipient; any other 5xx ends the session before DATA (meant
+  for "relaying denied" and similar misconfigurations), so the recipients
+  the relay already accepted wait too, until `pool.max_age` if the refusal
+  persists.
+- **Fix:** treat such a recipient as deferred and send to the accepted
+  ones; keep the session-wide retry only when no recipient is accepted.
+- **Found:** outside review (2026-11-23), confirmed by reading.
+- **Status:** open.
+
+### Y-63: Disk errors in the daemon's own work panic
+
+- **Where:** `keymgr/secret.go` (`Purge`), `idlog/idlog.go` (`Expire`),
+  `utils.go` (`assertIsPath` in `loopServer`).
+- **Impact:** a failed secring rewrite (a full disk at midnight), a
+  leveldb iterator error or a missing pool directory panics the daemon
+  (exit status 2) outside `decodeSafely`; under a supervisor it can
+  crash-loop, as Y-57 did. The keys stay safe (the old secring is kept).
+- **Fix:** log the error and keep running where the state is intact, or
+  exit 1 with a message (as for Y-57).
+- **Found:** outside review (2026-11-23), confirmed by reading.
+- **Status:** open.
+
+### Y-64: `yamn -R` reads stdin without a limit
+
+- **Where:** `yamn.go` (`-R`, `--read-mail`).
+- **Impact:** the MTA hands mail to `yamn -R`, which reads all of stdin
+  into memory before delivering it to the Maildir; only the MTA's message
+  size limit bounds it.
+- **Fix:** read through a limit of a few MB and refuse larger mail.
+  `--import` reads an mbox the operator chose and needs no fixed limit.
+- **Found:** outside reviews (2026-11-23), confirmed by reading.
+- **Status:** open.
 
 ## Info
 
@@ -1192,3 +1313,34 @@ were found later. Each status line names the tests that came with the fix.
     `x/crypto` gives the same output but wouldn't remove the dependency.
 - **Found:** review 2, C-9 to C-11; dchest review 2026-10-22.
 - **Status:** no action needed.
+
+### Y-65: Notes from the outside reviews
+
+Checked in the code on 2026-11-23 and kept here instead of acting on them:
+
+- **Can be fixed:** a pubring with two keys for one remailer takes the
+  last one in file order as the candidate (`ImportPubring`,
+  `PinStore.check`; pinning may still keep the pinned key), not the newest
+  by date; it needs a pubring that lists both. An invalid or unknown next
+  hop in a packet is logged with its value (`checkNextHop`; a forged
+  value). With the Y-48 fix (#87), MX lookup failures at warn give only
+  the error kind, not which permanent failure it was.
+  `checkPublishedKeys` runs before `startupKeys` purges old keys. A
+  missing `.minisig` can delay a fetch by up to an hour after pinger keys
+  are first configured. Expired pool files count as sent mail in the
+  stats. The self-loop check compares addresses case-sensitively.
+  `dummy()` logs "no known remailers" instead of `makeChain`'s error.
+- **By design:** a held key change whose old key was still listed when it
+  appeared, or came back later, isn't released after 24 hours (yamn(1),
+  key pinning); it is accepted with `--pin-accept`, or as a normal
+  rotation once the pinned key is close to expiring. yamn(1) could say "or
+  was still listed".
+- **Noise for this project:** no `fsync` before rename in
+  `writeFileAtomic`/`PinStore.Save` (on some filesystems a crash can leave
+  an empty file; on ZFS the old or the new file stays); config
+  values of 0 that panic later (invalid configurations); `io/ioutil`,
+  `min`/`max` shadowing, `path` vs `filepath` (Windows only),
+  `WriteConfig` mode 0644 (unused), local-time midnight, the `cfg.Pool.Loop`
+  race and 60/120 message when `pool.loop` is below 120, `ChunkDb` not
+  closed after a single run, `Chunk.Get`'s string compare, the client's
+  header check order for a `\r` in `To`.
