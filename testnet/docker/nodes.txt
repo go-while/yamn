@@ -1,0 +1,15 @@
+# The yamn test network in containers, one node per public server
+# (web-<name>.pugleaf.net; see README.md).  Same format as ../nodes.txt:
+# name, IPv4 address, roles.  Ports come from ports.env.  Only these
+# addresses (and loopback) may connect to a node's tnode.
+#
+# name  ip               roles       where
+fra1    178.162.244.15   exit,hub    Frankfurt
+ams1    62.212.79.121    middle      Amsterdam
+lon1    23.81.33.143     exit        London
+wdc1    207.58.173.182   middle      Washington
+can1    184.107.141.169  middle      Montreal
+sfo1    23.82.99.98      exit        San Francisco
+lax1    23.19.230.132    middle      Los Angeles
+sin1    142.91.102.168   exit        Singapore
+tyo1    142.91.105.182   middle      Tokyo
