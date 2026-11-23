@@ -507,7 +507,8 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 		return
 	}
 	if h := badHeader(msg.Header); h != "" {
-		err = fmt.Errorf("%s: refusing to mail a %s header with a CR or NUL in it", filename, h)
+		err = safeErrorf("%s: refusing to mail a header with a CR or NUL in it", filename)
+		log.Tracef("%s: the %q header has a CR or NUL", filename, h)
 		delFlag = true
 		return
 	}
@@ -525,7 +526,7 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 	sendTo = uniqueAddresses(append(sendTo, headToAddy(msg.Header, "Bcc")...))
 	filterHeaders(msg.Header)
 	if len(sendTo) == 0 {
-		err = fmt.Errorf("%s: No email recipients found", filename)
+		err = safeErrorf("%s: No email recipients found", filename)
 		// No point in repeatedly trying to resend a malformed file.
 		delFlag = true
 		return
@@ -536,7 +537,7 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 	// mailing a blocked recipient.
 	blockList, err := readDestBlock(cfg.Files.DestBlock)
 	if err != nil {
-		err = fmt.Errorf("%s: unable to read destination block list: %w", filename, err)
+		err = safeErrorf("%s: unable to read destination block list: %w", filename, err)
 		return
 	}
 	var allowed []string
@@ -549,14 +550,14 @@ func mailPoolFile(filename string) (delFlag bool, err error) {
 		allowed = append(allowed, addy)
 	}
 	if len(allowed) == 0 {
-		err = fmt.Errorf("%s: all recipients are on the destination block list", filename)
+		err = safeErrorf("%s: all recipients are on the destination block list", filename)
 		delFlag = true
 		return
 	}
 	sendTo = allowed
 	// Limit the fan-out of a single anonymous message.
 	if limit := cfg.Mail.MaxRecipients; limit > 0 && len(sendTo) > limit {
-		err = fmt.Errorf("%s: %d recipients exceed max_recipients of %d", filename, len(sendTo), limit)
+		err = safeErrorf("%s: %d recipients exceed max_recipients of %d", filename, len(sendTo), limit)
 		delFlag = true
 		return
 	}

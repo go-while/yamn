@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/textproto"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -23,16 +25,21 @@ func TestLogBrief(t *testing.T) {
 		err  error
 		want string
 	}{
-		{fmt.Errorf("%w: every recipient was rejected: %w", errPermanent, reject), "permanent (SMTP 550)"},
-		{fmt.Errorf("mx.secret.invalid:25: no recipient accepted the message yet: %w", deferred), "temporary (SMTP 451)"},
+		{fmt.Errorf("%w: every recipient was rejected: %w", errPermanent, reject), "permanent: SMTP 550"},
+		{fmt.Errorf("mx.secret.invalid:25: no recipient accepted the message yet: %w", deferred), "temporary: SMTP 451"},
 		{&pendingError{1, 3, errors.Join(fmt.Errorf("%w: x", errPermanent), deferred, timeoutErr{})},
-			"1 of 3 recipients still to do (SMTP 451, timeout)"},
-		{&net.DNSError{Err: "no such host", Name: "secret.invalid"}, "temporary (DNS error)"},
-		{&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}, "temporary (network error)"},
-		{fmt.Errorf("tls: %w", x509.HostnameError{Host: "mx.secret.invalid"}), "temporary (TLS certificate error)"},
-		{fmt.Errorf("mx.secret.invalid:25: %w", errNoTLS), "temporary (" + errNoTLS.Error() + ")"},
-		{fmt.Errorf("%w: bob@secret.invalid is a .onion domain", errPermanent), "permanent"},
-		{errors.New("something about bob@secret.invalid"), "temporary (error)"},
+			"1 of 3 recipients still to do: SMTP 451, timeout"},
+		{&net.DNSError{Err: "no such host", Name: "secret.invalid"}, "temporary: DNS error"},
+		{&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}, "temporary: network error"},
+		{fmt.Errorf("tls: %w", x509.HostnameError{Host: "mx.secret.invalid"}), "temporary: TLS certificate error"},
+		{fmt.Errorf("mx.secret.invalid:25: %w", errNoTLS), "temporary: " + errNoTLS.Error()},
+		{fmt.Errorf("%w: bob@secret.invalid is a .onion domain", errPermanent), "permanent: error"},
+		{errors.New("something about bob@secret.invalid"), "temporary: error"},
+		// A file error isn't a network error, although syscall.Errno
+		// is a net.Error.
+		{&os.PathError{Op: "open", Path: "/x/dest.blk", Err: syscall.EACCES}, "temporary: error"},
+		{safeErrorf("m123: %d recipients exceed max_recipients of %d", 9, 5),
+			"temporary: m123: 9 recipients exceed max_recipients of 5"},
 	} {
 		got := logBrief(tc.err)
 		if got != tc.want {

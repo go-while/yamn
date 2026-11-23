@@ -24,6 +24,17 @@ var (
 	errRelayNoTLS = errors.New("configured relay does not offer STARTTLS")
 )
 
+// safeError marks an error whose whole text is safe to log: yamn's own
+// words, a file name or a count, nothing from the mail.
+type safeError struct{ error }
+
+func (e safeError) Unwrap() error { return e.error }
+
+// safeErrorf is fmt.Errorf for an error whose text is safe to log.
+func safeErrorf(format string, a ...interface{}) error {
+	return safeError{fmt.Errorf(format, a...)}
+}
+
 // pendingError reports a message with recipients still to do.  It lists
 // its causes but doesn't wrap them: some may be errPermanent, while the
 // message as a whole waits for a retry.
@@ -40,24 +51,32 @@ func (e *pendingError) Error() string {
 // text: permanent or temporary, the SMTP reply codes, and the kind of any
 // other error.
 func logBrief(err error) string {
-	var kinds []string
-	var what string
 	var pe *pendingError
 	switch {
 	case errors.As(err, &pe):
-		what = fmt.Sprintf("%d of %d recipients still to do", pe.todo, pe.total)
-		errKinds(pe.causes, &kinds)
+		return logKinds(err)
 	case errors.Is(err, errPermanent):
-		what = "permanent"
-		errKinds(err, &kinds)
+		return "permanent: " + logKinds(err)
 	default:
-		what = "temporary"
-		errKinds(err, &kinds)
+		return "temporary: " + logKinds(err)
 	}
+}
+
+// logKinds is logBrief without "permanent" or "temporary", for lines that
+// say what happens to the message themselves.
+func logKinds(err error) string {
+	var kinds []string
+	var pe *pendingError
+	prefix := ""
+	if errors.As(err, &pe) {
+		prefix = fmt.Sprintf("%d of %d recipients still to do: ", pe.todo, pe.total)
+		err = pe.causes
+	}
+	errKinds(err, &kinds)
 	if len(kinds) == 0 {
-		return what
+		kinds = []string{"error"}
 	}
-	return what + " (" + strings.Join(kinds, ", ") + ")"
+	return prefix + strings.Join(kinds, ", ")
 }
 
 // errKinds adds the kinds of err's leaf errors to kinds, once each.
@@ -75,6 +94,9 @@ func errKinds(err error, kinds *[]string) {
 		return
 	case *textproto.Error:
 		add(fmt.Sprintf("SMTP %d", e.Code))
+		return
+	case safeError:
+		add(e.Error())
 		return
 	}
 	switch err {
@@ -113,11 +135,16 @@ func netKind(err error) string {
 		return "TLS certificate error"
 	case tls.AlertError, tls.RecordHeaderError:
 		return "TLS error"
-	case net.Error:
+	case *net.OpError:
 		if e.Timeout() {
 			return "timeout"
 		}
 		return "network error"
+	case net.Error:
+		// syscall.Errno is a net.Error too, also for file errors.
+		if e.Timeout() {
+			return "timeout"
+		}
 	}
 	return ""
 }
@@ -138,7 +165,7 @@ func smtpLog(logf func(string, ...interface{}), what, serverAddr string, directM
 	if !strings.HasSuffix(what, ":") {
 		what += " failed:"
 	}
-	logf("%s %s, %s", what, serverFor(serverAddr, directMX), logBrief(err))
+	logf("%s %s, %s", what, serverFor(serverAddr, directMX), logKinds(err))
 	log.Tracef("%s Server=%s, Error=%s", what, serverAddr, err)
 }
 

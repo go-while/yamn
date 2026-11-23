@@ -165,7 +165,7 @@ func emailPoolFile(filename string) {
 		if delFlag {
 			state = "dropped"
 		}
-		log.Warnf("%s: mailing failed, %s: %s", filename, state, logBrief(err))
+		log.Warnf("%s: mailing failed, %s: %s", filename, state, logKinds(err))
 		log.Tracef("%s: %s", filename, err)
 		if delFlag {
 			// If delFlag is true, we delete the file, even though

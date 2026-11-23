@@ -183,3 +183,23 @@ func TestReceivedMailErrorsNotLogged(t *testing.T) {
 		}
 	}
 }
+
+// TestPoolFileReasonLogged checks that a pool file dropped for one of
+// mailPoolFile's own reasons says which at info level (its text holds no
+// address), and that a permanent RCPT rejection isn't called temporary.
+func TestPoolFileReasonLogged(t *testing.T) {
+	setupDeliveryTest(t)
+	cfg.Mail.MaxRecipients = 1
+	buf := logAt(t, log.InfoLevel)
+	file := writePoolMessage(t, "To: a@one.invalid, b@two.invalid\n")
+	emailPoolFile(filepath.Base(file))
+	info := buf.String()
+	for _, want := range []string{"dropped", "exceed max_recipients"} {
+		if !strings.Contains(info, want) {
+			t.Errorf("info log lacks %q:\n%s", want, info)
+		}
+	}
+	if found := noneIn(info, "one.invalid", "two.invalid", "temporary"); len(found) > 0 {
+		t.Errorf("info log has %q:\n%s", found, info)
+	}
+}
