@@ -164,8 +164,14 @@ func loopServer() (err error) {
 			hourly = time.Now()
 		}
 
-		// Break out of the loop if we're not running as a daemon
+		// Break out of the loop if we're not running as a daemon.  A
+		// single run reads, processes and sends: without the daemon's
+		// pool goroutine, send one pool batch (and the remailer-*
+		// replies) here, unless -S flushes the whole pool afterwards.
 		if !runAsDaemon {
+			if !flag.Send {
+				sendPoolBatch()
+			}
 			break
 		}
 
