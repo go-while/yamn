@@ -37,12 +37,76 @@ each() {
 	printf '%s\n' "$@" | xargs -P "$PAR" -I{} sh "$SELF" "_$cmd" {}
 }
 
+# Build hosts: the KVM VMs behind $JUMP first, a free nuc container (any)
+# when the one we got does not answer.
+JUMP=${JUMP:-root@mbox-mo1.pugleaf.net}
+BUILD_HOSTS=${BUILD_HOSTS:-10.10.30.109,10.10.30.119,10.10.30.102,10.10.30.121}
+GOBIN_PATH='PATH=$PATH:/usr/local/go/bin:/root/yamn-test/go/bin'
+# The Go that a host without one gets in /usr/local/go (the test pools
+# share it). A newer go line in go.mod makes it fetch that toolchain itself.
+GO_VERSION=${GO_VERSION:-1.27.4}
+
+# take HOSTS [JUMPHOST]: lock one of HOSTS through jobq.sh and check that
+# it answers. Sets bh, bid and BJ (ssh/scp jump option); on failure
+# nothing stays locked.
+take() {
+	BJ=${2:+-J $2}
+	r=$(jobq.sh lock yamn "${JOBQ_AGENT:-yamn-1}" "$1") || return 1
+	set -- $r
+	[ $# -eq 2 ] || return 1
+	bh=$1
+	bid=$2
+	$SSH $BJ "root@$bh" true && return 0
+	echo "build: $bh does not answer" >&2
+	jobq.sh unlock "$bh" "$bid"
+	return 1
+}
+
+# goinstall VERSION: put the official Go tarball (sha256 from go.dev) into
+# /usr/local/go on $bh. Only where there is no /usr/local/go yet.
+goinstall() {
+	f=go$1.linux-amd64.tar.gz
+	sum=$(curl -fsS 'https://go.dev/dl/?mode=json&include=all' |
+		python3 -Ic 'import json, sys
+print(next(x["sha256"] for r in json.load(sys.stdin) for x in r["files"] if x["filename"] == sys.argv[1]))' "$f") ||
+		{ echo "build: no sha256 for $f on go.dev" >&2; return 1; }
+	echo "build: installing $f on $bh"
+	$SSH $BJ "root@$bh" "[ \"\$(uname -m)\" = x86_64 ] || { echo 'build: not x86_64' >&2; exit 1; }
+		[ ! -e /usr/local/go ] || { echo 'build: /usr/local/go exists but has no go' >&2; exit 1; }
+		cd /tmp && rm -f $f &&
+		{ curl -fsSLO https://go.dev/dl/$f || wget -q https://go.dev/dl/$f; } &&
+		echo '$sum  $f' | sha256sum -c - >/dev/null || exit 1
+		# Unpack beside it and rename, so a failed tar leaves no half /usr/local/go.
+		n=/usr/local/.go-new.\$\$
+		{ mkdir \$n && tar -C \$n -xzf $f && mv \$n/go /usr/local/go; } || { rm -rf \$n $f; exit 1; }
+		rmdir \$n; rm -f $f; /usr/local/go/bin/go version"
+}
+
 case ${1:-} in
 build)
+	# Build on a test host from the job queue (jobq.sh), never here: ship
+	# the committed HEAD there, build both static binaries, copy them back.
+	# Uncommitted changes are not included. A host without Go gets the
+	# official tarball of $GO_VERSION.
 	mkdir -p build
-	(cd .. && CGO_ENABLED=0 go build -trimpath -o testnet/build/yamn .)
-	CGO_ENABLED=0 go build -trimpath -o build/tnode ./tnode
-	./build/yamn --version
+	command -v jobq.sh >/dev/null || { echo "build: jobq.sh not found" >&2; exit 1; }
+	rev=$(git rev-parse --short HEAD)
+	git diff --quiet HEAD -- .. || echo "build: uncommitted changes are not built (HEAD $rev)" >&2
+	take "$BUILD_HOSTS" "$JUMP" || take any || { echo "build: no host from jobq.sh" >&2; exit 1; }
+	d=/root/yamn-build
+	# The unlock must run even if the cleanup fails (set -e holds in traps),
+	# and on Ctrl-C or kill too.
+	trap '$SSH $BJ "root@$bh" "rm -rf $d" || :; jobq.sh unlock "$bh" "$bid"' EXIT
+	trap 'exit 130' INT TERM HUP
+	echo "build: $rev on $bh"
+	$SSH $BJ "root@$bh" "$GOBIN_PATH; command -v go >/dev/null" || goinstall "$GO_VERSION"
+	git -C .. archive --format=tar HEAD | $SSH $BJ "root@$bh" "rm -rf $d && mkdir -p $d && tar -x -C $d"
+	$SSH $BJ "root@$bh" "cd $d && $GOBIN_PATH &&
+		export CGO_ENABLED=0 &&
+		timeout 30m go build -trimpath -o out/yamn . &&
+		timeout 30m go build -trimpath -o out/tnode ./testnet/tnode &&
+		out/yamn --version --i-am-root"
+	scp -q -o BatchMode=yes $BJ "root@$bh:$d/out/yamn" "root@$bh:$d/out/tnode" build/
 	;;
 start | restart)
 	# The hub first: the others download the keyring from it as they start.
