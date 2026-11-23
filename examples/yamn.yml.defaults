@@ -18,7 +18,8 @@
 
 general:
     # Log level: trace, debug, info, warn or error.  At trace level, an
-    # exit logs recipients, their mail servers and the servers' replies.
+    # exit logs recipients, their mail servers and the servers' replies,
+    # remailer-* requesters, and From and Subject of rejected mail.
     loglevel: warn
     # Log to files.logfile instead of stderr
     logtofile: false

@@ -134,7 +134,8 @@ func TestFooRefusalNamesNoSender(t *testing.T) {
 	}
 	// A reply that can't be pooled doesn't name the request's Subject.
 	cfg.Files.Pooldir = cfg.Files.Help // a file, not a directory
-	if err := remailerFoo("remailer-help bob@secret.invalid", "carol@example.invalid"); err == nil || strings.Contains(err.Error(), "secret") {
+	if err := remailerFoo("remailer-help bob@secret.invalid", "carol@example.invalid"); err == nil ||
+		strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "unable to pool") {
 		t.Errorf("pool write failure: err = %v", err)
 	}
 }
