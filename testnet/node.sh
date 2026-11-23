@@ -11,10 +11,16 @@
 #                        pclient (the pingers in pingers.txt)
 #   node.sh refresh [C]  hub: download C's keyring and stats now
 #   node.sh inbox        hub: list what arrived in the inbox
+#
+# Ports: mx 2525 and www 8080 on every node, unless ~/testnet/ports.env
+# sets SMTP_PORT and HTTP_PORT (the same on all nodes of a network).
 set -u
 T=$HOME/testnet
 B=$T/bin
 cd "$T" || exit 1
+SMTP_PORT=2525
+HTTP_PORT=8080
+[ -f "$T/ports.env" ] && . "$T/ports.env"
 
 die() { echo "$*" >&2; exit 1; }
 field() { awk -v n="$1" -v f="$2" '!/^#/ && $1 == n { print $f }' "$T/nodes.txt"; }
@@ -47,14 +53,14 @@ setup() {
 	    daemon: false
 	mail:
 	    smtp_relay: 127.0.0.1
-	    smtp_port: "2525"
+	    smtp_port: "$SMTP_PORT"
 	    mx_relay: false
 	    outbound_name: Test Remailer $NAME
 	    outbound_addy: noreply@$NAME.yamn.test
 	urls:
 	    fetch: true
-	    pubring: http://$HUB:8080/pubring.mix
-	    mlist2: http://$HUB:8080/mlist2.txt
+	    pubring: http://$HUB:$HTTP_PORT/pubring.mix
+	    mlist2: http://$HUB:$HTTP_PORT/mlist2.txt
 	pool:
 	    # Send whatever is there every 2 minutes: a test network has too
 	    # little traffic for the default pool of 5 plus 5.
@@ -71,12 +77,12 @@ setup() {
 		    loglevel: info
 		mail:
 		    smtp_relay: 127.0.0.1
-		    smtp_port: "2525"
+		    smtp_port: "$SMTP_PORT"
 		    mx_relay: false
 		urls:
 		    fetch: true
-		    pubring: http://$HUB:8080/pubring.mix
-		    mlist2: http://$HUB:8080/mlist2.txt
+		    pubring: http://$HUB:$HTTP_PORT/pubring.mix
+		    mlist2: http://$HUB:$HTTP_PORT/mlist2.txt
 		EOF
 		if [ -s "$T/pingers.txt" ]; then
 			mkdir -p "$T/pclient"
@@ -88,7 +94,7 @@ setup() {
 				    loglevel: info
 				mail:
 				    smtp_relay: 127.0.0.1
-				    smtp_port: "2525"
+				    smtp_port: "$SMTP_PORT"
 				    mx_relay: false
 				urls:
 				    fetch: true
@@ -100,8 +106,8 @@ setup() {
 					ip=$(field "$p" 2)
 					[ -n "$ip" ] || die "pinger $p isn't in nodes.txt"
 					printf '        - name: "%s"\n' "$p"
-					printf '          pubring: http://%s:8080/pinger/pubring.mix\n' "$ip"
-					printf '          mlist2: http://%s:8080/pinger/mlist2.txt\n' "$ip"
+					printf '          pubring: http://%s:%s/pinger/pubring.mix\n' "$ip" "$HTTP_PORT"
+					printf '          mlist2: http://%s:%s/pinger/mlist2.txt\n' "$ip" "$HTTP_PORT"
 					printf '          keys: ["%s"]\n' "$key"
 				done
 			} >"$T/pclient/yamn.yml"
@@ -166,7 +172,7 @@ allow_args() {
 
 start() {
 	load
-	set -- -nodes "$T/nodes.txt" -self "$NAME" -spool "$T/mx/spool" -deliver "mix=$T/remailer/Maildir"
+	set -- -listen ":$SMTP_PORT" -port "$SMTP_PORT" -nodes "$T/nodes.txt" -self "$NAME" -spool "$T/mx/spool" -deliver "mix=$T/remailer/Maildir"
 	has_role hub && set -- "$@" -deliver "inbox=$T/inbox/Maildir"
 	if has_role pinger && [ -d "$PINGER_HOME/Maildir" ]; then
 		set -- "$@" -deliver "pinger=$PINGER_HOME/Maildir"
@@ -177,7 +183,7 @@ start() {
 	set --
 	has_role hub && set -- -serve "/=$T/www" -mlist2 "$T/www"
 	has_role pinger && [ -d "$PINGER_HOME/results" ] && set -- "$@" -serve "/pinger/=$PINGER_HOME/results"
-	[ $# -gt 0 ] && supervise www "$B/tnode" www -nodes "$T/nodes.txt" $(allow_args) "$@"
+	[ $# -gt 0 ] && supervise www "$B/tnode" www -listen ":$HTTP_PORT" -nodes "$T/nodes.txt" $(allow_args) "$@"
 	set +f
 	supervise yamn "$B/yamn" --config "$T/remailer/yamn.yml" --dir "$T/remailer" -M -D
 }

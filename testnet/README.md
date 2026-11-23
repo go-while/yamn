@@ -51,6 +51,8 @@ isn't announced to the public pingers, and no mail can leave it.
 - **The hub** also has the inbox (`inbox@<hub>.yamn.test`) and a yamn
   client that sends test messages through random chains.
 
+A variant with one container per public server is in [`docker/`](docker).
+
 ## Use
 
 `testnet.sh` runs on a workstation that reaches the nodes as root over ssh.
