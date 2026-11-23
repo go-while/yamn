@@ -652,14 +652,15 @@ func usesSMTPRelay() bool {
 	return cfg.Mail.Sendmail || !cfg.Mail.MXRelay
 }
 
-// relaySend mails payload to sendTo through smtp_relay.  With
-// mail.tor_socks, recipients at .onion domains go straight to their onion
-// service instead, as the relay most likely can't reach them.  It returns
-// like mailRecipients.
+// relaySend mails payload to sendTo through smtp_relay.  Recipients at
+// .onion domains go straight to their onion service instead, as the relay
+// most likely can't reach them (and might look the name up in DNS):
+// through mail.tor_socks, or without it refused for good, as yamn(1) says.
+// It returns like mailRecipients.
 func relaySend(payload []byte, sendTo []string) (done []string, err error) {
 	var viaRelay, onion []string
 	for _, a := range sendTo {
-		if onionDelivery() && isOnion(a[strings.LastIndex(a, "@")+1:]) {
+		if isOnion(a[strings.LastIndex(a, "@")+1:]) {
 			onion = append(onion, a)
 		} else {
 			viaRelay = append(viaRelay, a)
