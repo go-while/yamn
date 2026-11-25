@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -41,18 +42,31 @@ type replyLimiter struct {
 // the day (int64) and the 8-byte hashes, all big-endian.
 var replyLimitMagic = []byte("YRL1")
 
+// maxReplyLimitFile caps the limiter's file: 1 MiB is about 130,000
+// addresses in a day.
+const maxReplyLimitFile = 1 << 20
+
 // load reads the limiter's state from file and keeps it there from now on.
-// A missing file starts a fresh limiter; a damaged one is replaced.
+// A missing file starts a fresh limiter; a damaged or oversized one is
+// replaced; the hashes of an earlier day aren't kept.
 func (l *replyLimiter) load(file string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.file = file
-	b, err := os.ReadFile(file)
+	f, err := os.Open(file)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxReplyLimitFile+1))
+	if err != nil {
+		return err
+	}
+	if len(b) > maxReplyLimitFile {
+		return fmt.Errorf("%s is over %d bytes, starting a new one", file, maxReplyLimitFile)
 	}
 	if len(b) < len(replyLimitMagic)+32+8 || !bytes.HasPrefix(b, replyLimitMagic) ||
 		(len(b)-len(replyLimitMagic)-40)%8 != 0 {
@@ -62,6 +76,9 @@ func (l *replyLimiter) load(file string) error {
 	l.key = append([]byte(nil), b[:32]...)
 	l.day = int64(binary.BigEndian.Uint64(b[32:40]))
 	l.sent = make(map[uint64]struct{})
+	if l.day != l.now().UTC().Unix()/86400 {
+		return nil // an earlier day: nothing to keep
+	}
 	for b = b[40:]; len(b) > 0; b = b[8:] {
 		l.sent[binary.BigEndian.Uint64(b[:8])] = struct{}{}
 	}

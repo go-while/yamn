@@ -46,10 +46,6 @@ func loopServer() (err error) {
 	checkPublishedKeys(secret, time.Now())
 	// Create some dirs if they don't already exist
 	createDirs()
-	// The once-a-day limit on remailer-* replies also holds across runs.
-	if err := fooReplies.load(filepath.Join(cfg.Files.Pooldir, ".replylimit")); err != nil {
-		log.Warnf("remailer-* reply limit: %s", err)
-	}
 
 	// Open the IDlog
 	log.Tracef("Opening ID Log: %s", cfg.Files.IDlog)
@@ -69,6 +65,12 @@ func loopServer() (err error) {
 	// A single run returns: release the database, as for the ID log.
 	defer ChunkDb.Close()
 	ChunkDb.SetExpire(cfg.Remailer.ChunkExpire)
+	// The once-a-day limit on remailer-* replies also holds across runs.
+	// Read it only now: holding the database locks, no other remailer on
+	// these files can write it until this one ends.
+	if err := fooReplies.load(filepath.Join(cfg.Files.Pooldir, ".replylimit")); err != nil {
+		log.Warnf("remailer-* reply limit: %s", err)
+	}
 
 	// Expire old entries in the ID Log
 	idLogExpire()

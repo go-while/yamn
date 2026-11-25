@@ -11,7 +11,9 @@ import (
 // replies for the next process, until the next UTC day.
 func TestReplyLimitPersists(t *testing.T) {
 	file := filepath.Join(t.TempDir(), ".replylimit")
+	noon := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	l1 := newReplyLimiter()
+	l1.now = func() time.Time { return noon }
 	if err := l1.load(file); err != nil {
 		t.Fatalf("load without a file: %v", err)
 	}
@@ -22,6 +24,7 @@ func TestReplyLimitPersists(t *testing.T) {
 		t.Fatalf("file %v, err %v; want mode 0600", fi, err)
 	}
 	l2 := newReplyLimiter()
+	l2.now = func() time.Time { return noon }
 	if err := l2.load(file); err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -31,10 +34,33 @@ func TestReplyLimitPersists(t *testing.T) {
 	if !l2.allowed("bob@example.invalid") {
 		t.Error("another address is blocked")
 	}
-	tomorrow := time.Now().Add(24 * time.Hour)
+	tomorrow := noon.Add(24 * time.Hour)
 	l2.now = func() time.Time { return tomorrow }
 	if !l2.allowed("alice@example.invalid") {
 		t.Error("still blocked on the next day")
+	}
+	// A process started the next day doesn't keep the old day's hashes.
+	l3 := newReplyLimiter()
+	l3.now = func() time.Time { return tomorrow }
+	if err := l3.load(file); err != nil || !l3.allowed("alice@example.invalid") || len(l3.sent) != 0 {
+		t.Errorf("next-day load: err %v, kept %d hashes", err, len(l3.sent))
+	}
+}
+
+// TestReplyLimitOversizedFile checks that a file over the cap isn't read
+// into memory as hashes: it is reported and replaced.
+func TestReplyLimitOversizedFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), ".replylimit")
+	big := append([]byte("YRL1"), make([]byte, maxReplyLimitFile)...)
+	if err := os.WriteFile(file, big, 0600); err != nil {
+		t.Fatal(err)
+	}
+	l := newReplyLimiter()
+	if err := l.load(file); err == nil {
+		t.Error("an oversized file was accepted")
+	}
+	if len(l.sent) != 0 {
+		t.Errorf("%d hashes loaded", len(l.sent))
 	}
 }
 
