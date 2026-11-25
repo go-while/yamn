@@ -14,8 +14,8 @@ import (
 func setupSingleRun(t *testing.T) *fakeSMTP {
 	t.Helper()
 	server := setupFooReply(t, "")
-	// loopServer sets these globals; the ID log closes on return, the
-	// chunk DB doesn't.
+	// loopServer sets these globals (and closes both databases when it
+	// returns); put them back.
 	oldPub, oldID, oldChunk := Pubring, IDDb, ChunkDb
 	t.Cleanup(func() {
 		if ChunkDb != nil && ChunkDb != oldChunk {

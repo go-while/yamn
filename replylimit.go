@@ -43,8 +43,12 @@ type replyLimiter struct {
 var replyLimitMagic = []byte("YRL1")
 
 // maxReplyLimitFile caps the limiter's file: 1 MiB is about 130,000
-// addresses in a day.
-const maxReplyLimitFile = 1 << 20
+// addresses in a day.  maxReplyHashes is how many fit; once a day has that
+// many, no more replies are sent that day, so the file stays loadable.
+const (
+	maxReplyLimitFile = 1 << 20
+	maxReplyHashes    = (maxReplyLimitFile - 4 - 32 - 8) / 8
+)
 
 // load reads the limiter's state from file and keeps it there from now on.
 // A missing file starts a fresh limiter; a damaged or oversized one is
@@ -124,11 +128,15 @@ func (l *replyLimiter) rollover() {
 	}
 }
 
-// allowed reports whether addr hasn't had a reply yet today.
+// allowed reports whether addr hasn't had a reply yet today (and the day's
+// set isn't full).
 func (l *replyLimiter) allowed(addr string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.rollover()
+	if len(l.sent) >= maxReplyHashes {
+		return false
+	}
 	_, done := l.sent[l.hash(addr)]
 	return !done
 }

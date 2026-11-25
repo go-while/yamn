@@ -83,3 +83,33 @@ func TestReplyLimitDamagedFile(t *testing.T) {
 		t.Errorf("rewritten file: err %v, allowed %v", err, l2.allowed("carol@example.invalid"))
 	}
 }
+
+// TestReplyLimitFull checks that a day with the most hashes the file can
+// hold allows no more replies, so a full day's file stays loadable.
+func TestReplyLimitFull(t *testing.T) {
+	file := filepath.Join(t.TempDir(), ".replylimit")
+	l := newReplyLimiter()
+	if err := l.load(file); err != nil {
+		t.Fatal(err)
+	}
+	l.rollover()
+	for i := 0; len(l.sent) < maxReplyHashes-1; i++ {
+		l.sent[uint64(i)] = struct{}{}
+	}
+	if !l.allowed("last@example.invalid") {
+		t.Fatal("refused before the set is full")
+	}
+	if err := l.record("last@example.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if l.allowed("another@example.invalid") {
+		t.Error("allowed a reply with the day's set full")
+	}
+	if fi, err := os.Stat(file); err != nil || fi.Size() > maxReplyLimitFile {
+		t.Fatalf("file %v, err %v; want at most %d bytes", fi, err, maxReplyLimitFile)
+	}
+	l2 := newReplyLimiter()
+	if err := l2.load(file); err != nil || len(l2.sent) != maxReplyHashes {
+		t.Errorf("reload: err %v, %d hashes, want %d", err, len(l2.sent), maxReplyHashes)
+	}
+}
