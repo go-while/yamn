@@ -9,6 +9,7 @@ import (
 	"net/mail"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -61,7 +62,15 @@ func loopServer() (err error) {
 		log.Error(dbOpenError("chunk database", cfg.Files.ChunkDB, dbErr))
 		os.Exit(1)
 	}
+	// A single run returns: release the database, as for the ID log.
+	defer ChunkDb.Close()
 	ChunkDb.SetExpire(cfg.Remailer.ChunkExpire)
+	// The once-a-day limit on remailer-* replies also holds across runs.
+	// Read it only now: holding the database locks, no other remailer on
+	// these files can write it until this one ends.
+	if err := fooReplies.load(filepath.Join(cfg.Files.Pooldir, ".replylimit")); err != nil {
+		log.Warnf("remailer-* reply limit: %s", err)
+	}
 
 	// Expire old entries in the ID Log
 	idLogExpire()
@@ -164,8 +173,14 @@ func loopServer() (err error) {
 			hourly = time.Now()
 		}
 
-		// Break out of the loop if we're not running as a daemon
+		// Break out of the loop if we're not running as a daemon.  A
+		// single run reads, processes and sends: without the daemon's
+		// pool goroutine, send one pool batch (and the remailer-*
+		// replies) here, unless -S flushes the whole pool afterwards.
 		if !runAsDaemon {
+			if !flag.Send {
+				sendPoolBatch()
+			}
 			break
 		}
 
@@ -899,7 +914,9 @@ func remailerFoo(subject, from string) (err error) {
 	}
 	// Count the reply before it's sent.  Its address may belong to a mail
 	// server that never answers, and each request would cost a send.
-	fooReplies.record(sender)
+	if err := fooReplies.record(sender); err != nil {
+		log.Warnf("Saving the remailer-* reply limit: %s", err)
+	}
 	// The reply is sent from the pool, so a slow mail server can't hold up
 	// the processing of incoming mail.
 	if err = writeReplyToPool(msg); err != nil {

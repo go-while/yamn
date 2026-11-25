@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -21,12 +26,82 @@ import (
 // bytes per address instead of the whole string, accidental collisions are
 // negligible at 64 bits, and without the key nobody can craft an address
 // whose hash collides with someone else's to block their replies.
+//
+// With a file (load), the key, the day and the hashes are kept there, so the
+// limit also holds across processes, such as remailer runs from cron.
 type replyLimiter struct {
 	mu   sync.Mutex
 	key  []byte
 	day  int64 // UTC day number the set below belongs to
 	sent map[uint64]struct{}
 	now  func() time.Time // replaced in tests
+	file string           // where the state is kept, if anywhere
+}
+
+// replyLimitMagic starts the limiter's file: "YRL1", then the 32-byte key,
+// the day (int64) and the 8-byte hashes, all big-endian.
+var replyLimitMagic = []byte("YRL1")
+
+// maxReplyLimitFile caps the limiter's file: 1 MiB is about 130,000
+// addresses in a day.  maxReplyHashes is how many fit; once a day has that
+// many, no more replies are sent that day, so the file stays loadable.
+const (
+	maxReplyLimitFile = 1 << 20
+	maxReplyHashes    = (maxReplyLimitFile - 4 - 32 - 8) / 8
+)
+
+// load reads the limiter's state from file and keeps it there from now on.
+// A missing file starts a fresh limiter; a damaged or oversized one is
+// replaced; the hashes of an earlier day aren't kept.
+func (l *replyLimiter) load(file string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.file = file
+	f, err := os.Open(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxReplyLimitFile+1))
+	if err != nil {
+		return err
+	}
+	if len(b) > maxReplyLimitFile {
+		return fmt.Errorf("%s is over %d bytes, starting a new one", file, maxReplyLimitFile)
+	}
+	if len(b) < len(replyLimitMagic)+32+8 || !bytes.HasPrefix(b, replyLimitMagic) ||
+		(len(b)-len(replyLimitMagic)-40)%8 != 0 {
+		return fmt.Errorf("%s is damaged, starting a new one", file)
+	}
+	b = b[len(replyLimitMagic):]
+	l.key = append([]byte(nil), b[:32]...)
+	l.day = int64(binary.BigEndian.Uint64(b[32:40]))
+	l.sent = make(map[uint64]struct{})
+	if l.day != l.now().UTC().Unix()/86400 {
+		return nil // an earlier day: nothing to keep
+	}
+	for b = b[40:]; len(b) > 0; b = b[8:] {
+		l.sent[binary.BigEndian.Uint64(b[:8])] = struct{}{}
+	}
+	return nil
+}
+
+// save writes the state to the file, if there is one.  The caller holds
+// l.mu.
+func (l *replyLimiter) save() error {
+	if l.file == "" {
+		return nil
+	}
+	b := append([]byte(nil), replyLimitMagic...)
+	b = append(b, l.key...)
+	b = binary.BigEndian.AppendUint64(b, uint64(l.day))
+	for h := range l.sent {
+		b = binary.BigEndian.AppendUint64(b, h)
+	}
+	return writeFileAtomic(l.file, b, 0600)
 }
 
 func newReplyLimiter() *replyLimiter {
@@ -53,21 +128,27 @@ func (l *replyLimiter) rollover() {
 	}
 }
 
-// allowed reports whether addr hasn't had a reply yet today.
+// allowed reports whether addr hasn't had a reply yet today (and the day's
+// set isn't full).
 func (l *replyLimiter) allowed(addr string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.rollover()
+	if len(l.sent) >= maxReplyHashes {
+		return false
+	}
 	_, done := l.sent[l.hash(addr)]
 	return !done
 }
 
-// record notes that addr got a reply today.
-func (l *replyLimiter) record(addr string) {
+// record notes that addr got a reply today.  An error means the note
+// couldn't be saved: the limit then holds for this process only.
+func (l *replyLimiter) record(addr string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.rollover()
 	l.sent[l.hash(addr)] = struct{}{}
+	return l.save()
 }
 
 // fooReplies limits replies to remailer-* requests.
