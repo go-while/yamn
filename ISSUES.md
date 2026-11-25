@@ -74,7 +74,7 @@ of the Y-59 fix. Each status line names the tests that came with the fix.
 | [Y-58](#y-58-incoming-armor-is-collected-without-a-size-limit) | Low | Incoming armor is collected without a size limit | fixed (8d3229c, #84) |
 | [Y-59](#y-59-a-single-remailer-run-doesnt-send) | Medium | A single remailer run doesn't send | fixed (203c58e, #85) |
 | [Y-60](#y-60-onion-recipients-go-to-smtp_relay-without-tor_socks) | Low | `.onion` recipients go to `smtp_relay` without `tor_socks` | fixed (778ea74, #86) |
-| [Y-61](#y-61-the-remailer--reply-limit-is-per-process) | Low | The `remailer-*` reply limit is per process | open |
+| [Y-61](#y-61-the-remailer--reply-limit-is-per-process) | Low | The `remailer-*` reply limit is per process | fixed (b6c0787, #85) |
 | [Y-62](#y-62-a-relays-5xx-to-one-recipient-holds-back-the-others) | Low | A relay's 5xx to one recipient holds back the others | open |
 | [Y-63](#y-63-disk-errors-in-the-daemons-own-work-panic) | Low | Disk errors in the daemon's own work panic | open |
 | [Y-64](#y-64-yamn--r-reads-stdin-without-a-limit) | Low | `yamn -R` reads stdin without a limit | open |
@@ -1188,14 +1188,18 @@ of the Y-59 fix. Each status line names the tests that came with the fix.
 ### Y-61: The `remailer-*` reply limit is per process
 
 - **Where:** `replylimit.go` (`fooReplies`), used by `remailerFoo`.
-- **Impact:** the once-a-day limit per address (Y-19) is kept in memory
-  and starts empty in every process, so separate runs from cron (which
-  send since Y-59) can reply again to the same address on the same day.
-  yamn(1) says so with the Y-59 fix (#85).
-- **Fix:** keep the limiter (day, address hashes) in a small file next to
-  the pool.
-- **Found:** council review of the Y-59 fix (2026-11-23).
-- **Status:** open.
+- **Impact:** the once-a-day limit per address (Y-19) was kept in memory
+  and started empty in every process, so separate runs from cron (which
+  send since Y-59) could reply again to the same address on the same day:
+  anyone who forges From could get one reply per run instead of one per
+  day sent to a third party.
+- **Fix:** keep the limiter (key, UTC day, address hashes) in
+  `<pooldir>/.replylimit`.
+- **Found:** council review of the Y-59 fix (2026-11-23, Opus, round 1);
+  a policy bypass, so it blocks that change under the rules of 2026-11-25.
+- **Status:** fixed in `b6c0787` (branch `fix/59-nondaemon-send`, #85).
+  Tests: `TestReplyLimitPersists`, `TestReplyLimitDamagedFile`,
+  `TestSingleRunReplyLimitAcrossRuns`.
 
 ### Y-62: A relay's 5xx to one recipient holds back the others
 
@@ -1207,6 +1211,10 @@ of the Y-59 fix. Each status line names the tests that came with the fix.
   persists.
 - **Fix:** treat such a recipient as deferred and send to the accepted
   ones; keep the session-wide retry only when no recipient is accepted.
+- **Fields:** harm: delayed mail, lost after `pool.max_age` if the
+  refusal persists; who: the operator's own relay, with a message to
+  several recipients; conditions: `mx_relay: false`, a non-5.1.x 5xx to
+  RCPT; verdict: issue list only.
 - **Found:** outside review (2026-11-23), confirmed by reading.
 - **Status:** open.
 
@@ -1220,6 +1228,10 @@ of the Y-59 fix. Each status line names the tests that came with the fix.
   crash-loop, as Y-57 did. The keys stay safe (the old secring is kept).
 - **Fix:** log the error and keep running where the state is intact, or
   exit 1 with a message (as for Y-57).
+- **Fields:** harm: crash of the remailer daemon (one process, no data
+  lost); who: nobody in practice (a full disk, a leveldb I/O error, a
+  removed pool directory); conditions: any config, at startup or the
+  midnight events; verdict: issue list only.
 - **Found:** outside review (2026-11-23), confirmed by reading.
 - **Status:** open.
 
@@ -1231,6 +1243,10 @@ of the Y-59 fix. Each status line names the tests that came with the fix.
   size limit bounds it.
 - **Fix:** read through a limit of a few MB and refuse larger mail.
   `--import` reads an mbox the operator chose and needs no fixed limit.
+- **Fields:** harm: memory use up to the mail's size (one `yamn -R`
+  process); who: anyone who mails the remailer; conditions: an MTA that
+  pipes mail to `yamn -R`, bounded by its message size limit; verdict:
+  issue list only.
 - **Found:** outside reviews (2026-11-23), confirmed by reading.
 - **Status:** open.
 
