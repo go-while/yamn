@@ -118,7 +118,11 @@ func TestSingleRunReplyLimitAcrossRuns(t *testing.T) {
 		t.Fatalf("first run: %d replies to carol, want 1", n)
 	}
 
-	fooReplies = newReplyLimiter() // a new process
+	// A new process: a fresh in-memory limiter, the databases released.
+	fooReplies = newReplyLimiter()
+	if ChunkDb != nil {
+		ChunkDb.Close()
+	}
 	deliverMail(t, dir, request)
 	if err := loopServer(); err != nil {
 		t.Fatalf("second run: %s", err)
