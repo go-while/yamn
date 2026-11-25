@@ -66,6 +66,8 @@ func loopServer() (err error) {
 		log.Error(dbOpenError("chunk database", cfg.Files.ChunkDB, dbErr))
 		os.Exit(1)
 	}
+	// A single run returns: release the database, as for the ID log.
+	defer ChunkDb.Close()
 	ChunkDb.SetExpire(cfg.Remailer.ChunkExpire)
 
 	// Expire old entries in the ID Log
