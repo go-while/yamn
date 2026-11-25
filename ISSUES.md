@@ -674,8 +674,9 @@ of the Y-59 fix. Each status line names the tests that came with the fix.
   daemon or `yamn -S` sent them.
 - **Fix:** end the single pass with one pool batch, except with `-S`.
 - **Found:** outside review (2026-11-23), confirmed by reading.
-- **Status:** fixed in `203c58e` to `c74d894` (branch
-  `fix/59-nondaemon-send`, #85); yamn(1) notes on cron runs. Tests:
+- **Status:** fixed in `203c58e` to `6d78b30` (branch
+  `fix/59-nondaemon-send`, #85); yamn(1) notes on cron runs; the reply
+  limit this made necessary is Y-61. Tests:
   `TestSingleRunSendsPool`, `TestSingleRunDeliversPooledMail`,
   `TestSingleRunWithFlushLeavesPool`.
 
@@ -1197,8 +1198,11 @@ of the Y-59 fix. Each status line names the tests that came with the fix.
   `<pooldir>/.replylimit`.
 - **Found:** council review of the Y-59 fix (2026-11-23, Opus, round 1);
   a policy bypass, so it blocks that change under the rules of 2026-11-25.
-- **Status:** fixed in `b6c0787` (branch `fix/59-nondaemon-send`, #85).
-  Tests: `TestReplyLimitPersists`, `TestReplyLimitDamagedFile`,
+- **Status:** fixed in `b6c0787` to `6d78b30` (branch
+  `fix/59-nondaemon-send`, #85): read under the database locks, through a
+  1 MiB cap; a full day allows no more replies. Tests:
+  `TestReplyLimitPersists`, `TestReplyLimitDamagedFile`,
+  `TestReplyLimitOversizedFile`, `TestReplyLimitFull`,
   `TestSingleRunReplyLimitAcrossRuns`.
 
 ### Y-62: A relay's 5xx to one recipient holds back the others
