@@ -110,9 +110,9 @@ runs, or start them with
 .BR flock (1).
 The once-a-day limit on
 .B remailer-*
-replies per address is kept in memory and starts empty in every run, so
-separate runs from cron can reply again to the same address on the same
-day.
+replies per address is kept in the file
+.I .replylimit
+in the pool directory, so it also holds across runs.
 .TP
 .B "--meminfo"
 In server mode, log the process's memory use when it starts and with the

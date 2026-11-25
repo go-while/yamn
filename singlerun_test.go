@@ -2,8 +2,11 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/luksen/maildir"
 )
 
 // setupSingleRun prepares a remailer for one loopServer pass without the
@@ -87,5 +90,40 @@ func TestSingleRunDeliversPooledMail(t *testing.T) {
 	}
 	if !delivered {
 		t.Errorf("sessions %q, want a delivery to alice@example.invalid", server.sessions)
+	}
+}
+
+// TestSingleRunReplyLimitAcrossRuns checks that two single remailer runs,
+// as from cron, reply to the same address only once a day: the second run,
+// a new process, reads the limit the first one saved.
+func TestSingleRunReplyLimitAcrossRuns(t *testing.T) {
+	server := setupSingleRun(t)
+	cfg.Files.Maildir = filepath.Join(t.TempDir(), "Maildir")
+	dir := maildir.Dir(cfg.Files.Maildir)
+	if err := dir.Create(); err != nil {
+		t.Fatal(err)
+	}
+	request := []byte("From: carol@example.invalid\nSubject: remailer-help\n\nhelp\n")
+	replies := func() int {
+		server.mu.Lock()
+		defer server.mu.Unlock()
+		return len(slices.DeleteFunc(slices.Clone(server.rcpts), func(r string) bool { return r != "carol@example.invalid" }))
+	}
+
+	deliverMail(t, dir, request)
+	if err := loopServer(); err != nil {
+		t.Fatalf("first run: %s", err)
+	}
+	if n := replies(); n != 1 {
+		t.Fatalf("first run: %d replies to carol, want 1", n)
+	}
+
+	fooReplies = newReplyLimiter() // a new process
+	deliverMail(t, dir, request)
+	if err := loopServer(); err != nil {
+		t.Fatalf("second run: %s", err)
+	}
+	if n := replies(); n != 1 {
+		t.Errorf("second run: %d replies to carol in all, want still 1", n)
 	}
 }

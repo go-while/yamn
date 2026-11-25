@@ -9,6 +9,7 @@ import (
 	"net/mail"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -45,6 +46,10 @@ func loopServer() (err error) {
 	checkPublishedKeys(secret, time.Now())
 	// Create some dirs if they don't already exist
 	createDirs()
+	// The once-a-day limit on remailer-* replies also holds across runs.
+	if err := fooReplies.load(filepath.Join(cfg.Files.Pooldir, ".replylimit")); err != nil {
+		log.Warnf("remailer-* reply limit: %s", err)
+	}
 
 	// Open the IDlog
 	log.Tracef("Opening ID Log: %s", cfg.Files.IDlog)
@@ -905,7 +910,9 @@ func remailerFoo(subject, from string) (err error) {
 	}
 	// Count the reply before it's sent.  Its address may belong to a mail
 	// server that never answers, and each request would cost a send.
-	fooReplies.record(sender)
+	if err := fooReplies.record(sender); err != nil {
+		log.Warnf("Saving the remailer-* reply limit: %s", err)
+	}
 	// The reply is sent from the pool, so a slow mail server can't hold up
 	// the processing of incoming mail.
 	if err = writeReplyToPool(msg); err != nil {
